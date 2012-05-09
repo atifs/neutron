@@ -47,12 +47,24 @@ class NotFound(QuantumException):
     pass
 
 
+class NotAuthorized(QuantumException):
+    message = _("Not authorized.")
+
+
+class AdminRequired(NotAuthorized):
+    message = _("User does not have admin privileges: %(reason)s")
+
+
 class ClassNotFound(NotFound):
     message = _("Class %(class_name)s could not be found")
 
 
 class NetworkNotFound(NotFound):
     message = _("Network %(net_id)s could not be found")
+
+
+class SubnetNotFound(NotFound):
+    message = _("Subnet %(subnet_id)s could not be found")
 
 
 class PortNotFound(NotFound):
@@ -112,3 +124,7 @@ class InvalidContentType(Invalid):
 
 class NotImplementedError(Error):
     pass
+
+
+class FixedIPNotAvailable(QuantumException):
+    message = _("Fixed IP unavailable for network: %(network_uuid)s")

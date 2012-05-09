@@ -126,6 +126,21 @@ def bool_from_string(subject):
     return False
 
 
+def boolize(subject):
+    """
+    Quak like a boolean
+    """
+    if isinstance(subject, bool):
+        return subject
+    elif hasattr(subject, 'startswith'):
+        sub = subject.strip().lower()
+        if sub in ('true', 'on', '1'):
+            return True
+        elif sub in ('false', 'off', '0'):
+            return False
+    return subject
+
+
 def fetchfile(url, target):
     logging.debug("Fetching %s" % url)
 #    c = pycurl.Curl()
