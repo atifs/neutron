@@ -1,0 +1,3 @@
+curl -H "Content-Type: application/json" -d '{"security_group": {"name":"sg1", "description":"d1"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups
+#curl -H "Content-Type: application/json" -d '{"security_group_rule": {"direction":"inbound", "dest_vn":"vn2", "ip_protocol":"tcp", "port":1234, "action": "allow"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups/ct:sg:tenant:sg1/security_group_rules
+curl -H "Content-Type: application/json" -d '{"policy": {"name":"pol1", "description":"d1"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups/ct:sg:tenant:sg1/policies

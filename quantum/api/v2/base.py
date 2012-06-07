@@ -181,6 +181,8 @@ class Controller(object):
         if not body:
             raise webob.exc.HTTPBadRequest(_("Resource body required"))
 
+	import pdb
+	pdb.set_trace()
         body = body or {self._resource: {}}
 
         if self._collection in body and allow_bulk:

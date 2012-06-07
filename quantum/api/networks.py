@@ -125,6 +125,8 @@ class Controller(common.QuantumController):
         # actual plugin will want to parse.  We could just pass only
         # request_params but that would mean all the plugins would need to
         # change.
+	import pdb
+	pdb.set_trace()
         body = self._prepare_request_body(body, self._network_ops_param_list)
         network = self._plugin.create_network(tenant_id,
                                               body['network']['name'],

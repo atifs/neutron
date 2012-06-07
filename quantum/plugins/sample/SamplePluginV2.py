@@ -69,6 +69,8 @@ class QuantumEchoPlugin(quantum_plugin_base_v2.QuantumPluginBaseV2):
         self._log("create_network", context, network=network)
         res = {"id": str(uuid.uuid4())}
         res.update(network)
+	import pdb
+	pdb.set_trace()
         return res
 
     def update_network(self, context, id, network):
