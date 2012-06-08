@@ -286,18 +286,17 @@ class ContrailPlugin(object):
         """
         LOG.debug("ContrailPlugin.create_policy() called")
         pol_id = self._cfgdb.policy_create(tenant_id, sg_id, pol_name)
-	#import pdb
-	#pdb.set_trace()
         return {'policy-id': pol_id}
 
-    #def create_security_group_rule(self, tenant_id, sg_id, sgr_dir, sgr_vn,
-    #                               sgr_proto, sgr_port, sgr_action):
-    #    """
-    #    Creates a new Security Group Rule.
-    #    """
-    #    """
-    #    .. attention:: sg_descr is being ignored
-    #    """
-    #    LOG.debug("ContrailPlugin.create_security_group_rule() called")
-    #    sg_id = self._cfgdb.security_group_rule_create(tenant_id, sg_id,
-    #	                    sgr_dir, sgr_vn, sgr_proto, sgr_port, sgr_action)
+    def create_policy_entry_list(self, tenant_id, pol_id, pe_list):
+        """
+        Creates a new Policy Entry List.
+        """
+        LOG.debug("ContrailPlugin.create_policy_entry_list() called")
+        self._cfgdb.policy_entry_list_create(tenant_id, pol_id,
+	                                                  pe_list)
+
+    def get_policy_entry(self, pe_id):
+        LOG.debug("ContrailPlugin.get_policy_entry() called")
+        policy_entry = self._cfgdb.policy_entry_get(pe_id)
+

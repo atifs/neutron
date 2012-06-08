@@ -7,6 +7,8 @@
 .. attention:: Fix the license string
 """
 
+import uuid
+
 from xml.etree import ElementTree
 
 from ifmap_client.ifmap.client import client, namespaces
@@ -24,7 +26,7 @@ def security_group_alloc_ifmap_id(tenant_uuid, sg_name):
     return "ct:sg:%s:%s" %(tenant_uuid, sg_name)
 
 def policy_alloc_ifmap_id(tenant_uuid, pol_name):
-    # po
+    # policy name not qualified by security group name
     return "ct:pol:%s:%s" %(tenant_uuid, pol_name)
 
 def tenant_get_ifmap_id(tenant_uuid):
@@ -32,6 +34,9 @@ def tenant_get_ifmap_id(tenant_uuid):
 
 def security_group_get_ifmap_id(sg_id):
     return sg_id
+
+def policy_get_ifmap_id(pol_id):
+    return pol_id
 
 class ContrailConfigDB(object):
     def __init__(self, srvr_ip, srvr_port):
@@ -222,3 +227,37 @@ class ContrailConfigDB(object):
         result = mapclient.call('publish', pubreq)
 
 	return pol_imid
+
+    def policy_entry_list_create(self, tenant_uuid, pol_id, pe_list):
+        """
+	policy_entry_list is a list updated in full by end-user agent
+	at all operations
+	"""
+
+        pol_imid = policy_get_ifmap_id(pol_id)
+        meta_pe_list = "<ct:policy_entry_list>"
+	for pe in pe_list:
+	    meta_pe_list += \
+	        "  <ct:policy_entry>" + \
+	        "      <ct:dir> %s </ct:dir>" %(pe['direction']) + \
+	        "      <ct:vn> %s </ct:vn>" %(pe['other_vn']) + \
+	        "      <ct:proto> %s </ct:proto>" %(pe['ip_proto']) + \
+	        "      <ct:port> %s </ct:port>" %(pe['port']) + \
+	        "      <ct:action> %s </ct:action>" %(pe['action']) + \
+	        "  </ct:policy_entry>"
+        meta_pe_list += "</ct:policy_entry_list>"
+
+        mapclient = self._mapclient
+        meta = str(Metadata('policy-entries', '',
+                       {'ifmap-cardinality':'singleValue'}, ns_prefix = "ct",
+                       elements = meta_pe_list))
+
+        pubreq = PublishRequest(mapclient.get_session_id(),
+                     str(PublishUpdateOperation(
+                             id1 = str(Identity(
+                                           name = pol_imid,
+                                           type = "other",
+                                           other_type = "extended")),
+                             metadata = meta,
+                             lifetime = 'forever')))
+        result = mapclient.call('publish', pubreq)

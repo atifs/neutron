@@ -238,16 +238,10 @@ class SecurityGroupController(common.QuantumController, wsgi.Controller):
         return dict(security_group=result)
 
 class PolicyController(common.QuantumController, wsgi.Controller):
-    #_securitygrouprule_ops_param_list = [
-    #    {'param-name': 'direction', 'required': True},
-    #    {'param-name': 'dest_vn', 'required': True},
-    #    {'param-name': 'ip_protocol', 'required': True},
-    #    {'param-name': 'port', 'required': True},
-    #    {'param-name': 'action', 'required': True},
-    #    ]
     _policy_ops_param_list = [
         {'param-name': 'name', 'required': True},
         {'param-name': 'description', 'required': True},
+        {'param-name': 'position', 'required': False}, # posn in security group
         ]
 
     def __init__(self, plugin):
@@ -258,8 +252,8 @@ class PolicyController(common.QuantumController, wsgi.Controller):
     def create(self, request, tenant_id, security_group_id):
         """ Creates a new policy for a given tenant """
         try:
-	    #import pdb
-	    #pdb.set_trace()
+	    import pdb
+	    pdb.set_trace()
             body = self._deserialize(request.body, request.get_content_type())
             req_body = self._prepare_request_body(
                                  body, self._policy_ops_param_list)
@@ -277,16 +271,53 @@ class PolicyController(common.QuantumController, wsgi.Controller):
         result = builder.build(policy)
         return dict(policy=result)
 
-#        security_group_rule = self._plugin.create_security_group_rule(tenant_id,
-#	                                           security_group_id,
-#                                                   req_params['direction'],
-#                                                   req_params['dest_vn'],
-#						   req_params['ip_protocol'],
-#						   req_params['port'],
-#						   req_params['action'])
-#        builder = security_group_rules_view.get_view_builder(request, self.version)
-#        result = builder.build(security_group_rule)
-#        return dict(security_group_rule=result)
+class PolicyEntryListController(common.QuantumController, wsgi.Controller):
+    _policyentrylist_ops_param_list = [
+        #{'param-name': 'policy_entry', 'required': True},
+        #{'param-name': 'dest_vn', 'required': True},
+        #{'param-name': 'ip_protocol', 'required': True},
+        #{'param-name': 'port', 'required': True},
+        #{'param-name': 'action', 'required': True},
+	#{'param-name': 'list', 'required': True}
+        ]
+
+    def __init__(self, plugin):
+        self._resource_name = 'policy_entry_list'
+        self._plugin = plugin
+        self.version = "1.0"
+
+    def create(self, request, tenant_id, security_group_id, policy_id):
+        """ Creates a new policy entry list for a given tenant """
+        try:
+	    import pdb
+	    pdb.set_trace()
+            body = self._deserialize(request.body, request.get_content_type())
+            req_body = self._prepare_request_body(
+                                 body, self._policyentrylist_ops_param_list)
+            req_params = req_body[self._resource_name]
+
+        except exc.HTTPError as exp:
+            return faults.Fault(exp)
+
+        self._plugin.create_policy_entry_list(tenant_id, policy_id, req_params)
+        #builder = policy_entry_list_view.get_view_builder(request, self.version)
+        #result = builder.build(policy_entry_list)
+        #return dict(policy_entry_list=result)
+
+    #def show(self, request, tenant_id, security_group_id, policy_id,
+    #         policy_entry_id):
+    #    """ Returns policy entry details for the given id """
+    #    """
+    #    ..attention:: try catch for not found
+    #    """
+    #
+    #   policy_entry = self._plugin.get_policy_entry(tenant_id,
+    #                                             policy_entry_id)
+    #   builder = policy_entry_view.get_view_builder(request, self.version)
+    #    #build response with details
+    #    result = builder.build(policy_entry, True)
+    #
+    #    return dict(policy_entry=result)
 
 #class SecurityGroupController(SecurityGroupControllerBase):
 #   """The Security group API controller for the OpenStack API."""
@@ -746,12 +777,23 @@ class Security_groups(object):
 					   parent = parent_resource)
         resources.append(res)
 
-        # Policy definition
+        # Policy List definition
         parent_resource = dict(member_name="security_group",
                                collection_name="extensions/ct/tenants/"
                                ":(tenant_id)/security_groups")
         controller = PolicyController(QuantumManager.get_plugin())
         res = extensions.ResourceExtension('policies',
+                                           controller,
+					   parent = parent_resource)
+        resources.append(res)
+
+        # Policy Entry definition
+        parent_resource = dict(member_name="policy",
+                               collection_name="extensions/ct/tenants/"
+                               ":(tenant_id)/security_groups/"
+			       ":(security_group_id)/policies")
+        controller = PolicyEntryListController(QuantumManager.get_plugin())
+        res = extensions.ResourceExtension('policy_entries',
                                            controller,
 					   parent = parent_resource)
         resources.append(res)
