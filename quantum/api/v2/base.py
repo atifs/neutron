@@ -149,6 +149,8 @@ class Controller(object):
 
     def create(self, request, body=None):
         """Creates a new instance of the requested entity"""
+	#import pdb
+	#pdb.set_trace()
         body = self._prepare_request_body(body, allow_bulk=True)
         obj_creator = getattr(self._plugin,
                               "create_%s" % self._resource)
@@ -181,8 +183,8 @@ class Controller(object):
         if not body:
             raise webob.exc.HTTPBadRequest(_("Resource body required"))
 
-	import pdb
-	pdb.set_trace()
+	#import pdb
+	#pdb.set_trace()
         body = body or {self._resource: {}}
 
         if self._collection in body and allow_bulk:

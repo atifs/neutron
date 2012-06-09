@@ -25,16 +25,26 @@ class ContrailPlugin(object):
     """
 
     supported_extension_aliases = ["security_groups"]
+    _cfgdb = None
+
+    @classmethod
+    def _connect_to_config_db(cls):
+        """
+        Many instantiations of plugin (base + extensions) but need to have 
+	only one config db conn (else error from ifmap-server)
+	"""
+	if cls._cfgdb is None:
+            # Initialize connection to DB and add default entries
+            """
+            .. attention:: pick vals below from config
+            """
+            cls._cfgdb = ctdb.config_db.ContrailConfigDB('192.168.1.17', '8443')
 
     def __init__(self):
         db.configure_db({'sql_connection': 'sqlite:///:memory:'})
         ContrailPlugin._net_counter = 0
+	ContrailPlugin._connect_to_config_db()
 
-        # Initialize connection to DB and add default entries
-        """
-        .. attention:: pick vals below from config
-        """
-        self._cfgdb = ctdb.config_db.ContrailConfigDB('192.168.1.17', '8443')
 
     def _get_network(self, tenant_id, network_id):
 
@@ -122,12 +132,21 @@ class ContrailPlugin(object):
                 'net-op-status': net.op_status,
                 'net-ports': ports}
 
-    def create_network(self, tenant_id, net_name, **kwargs):
+    def create_network(self, context, network):
         """
         Creates a new Virtual Network, and assigns it
         a symbolic name.
         """
         LOG.debug("ContrailPlugin.create_network() called")
+
+        net_name = network['network']['name']
+        tenant_id = context.to_dict()['tenant_id']
+        if tenant_id == None:
+	   """
+	   .. attention:: TODO remove after quantum client is apiv2
+	   """
+           tenant_id = 'tenant1'
+
         net_id = self._cfgdb.network_create(tenant_id, net_name)
 
         new_net = db.network_create(tenant_id, net_name)

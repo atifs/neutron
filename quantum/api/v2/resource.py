@@ -90,6 +90,8 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
 
         try:
             if request.body:
+	        #import pdb
+		#pdb.set_trace()
                 args['body'] = deserializer(request.body)
 
             method = getattr(controller, action)

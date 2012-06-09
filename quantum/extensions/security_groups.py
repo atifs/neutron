@@ -218,7 +218,7 @@ class SecurityGroupController(common.QuantumController, wsgi.Controller):
         self._plugin = plugin
         self.version = "1.0"
 
-    def create(self, request, tenant_id):
+    def create(self, request, tenant_id, network_id):
         """ Creates a new security group for a given tenant """
         try:
 	    #import pdb
@@ -249,11 +249,9 @@ class PolicyController(common.QuantumController, wsgi.Controller):
         self._plugin = plugin
         self.version = "1.0"
 
-    def create(self, request, tenant_id, security_group_id):
+    def create(self, request, tenant_id, network_id, security_group_id):
         """ Creates a new policy for a given tenant """
         try:
-	    import pdb
-	    pdb.set_trace()
             body = self._deserialize(request.body, request.get_content_type())
             req_body = self._prepare_request_body(
                                  body, self._policy_ops_param_list)
@@ -286,7 +284,8 @@ class PolicyEntryListController(common.QuantumController, wsgi.Controller):
         self._plugin = plugin
         self.version = "1.0"
 
-    def create(self, request, tenant_id, security_group_id, policy_id):
+    def create(self, request, tenant_id, network_id, security_group_id,
+               policy_id):
         """ Creates a new policy entry list for a given tenant """
         try:
 	    import pdb
@@ -767,8 +766,9 @@ class Security_groups(object):
         resources = []
 
         # Security Group definition
-        parent_resource = dict(member_name="tenant",
-                               collection_name="extensions/ct/tenants")
+        parent_resource = dict(member_name="network",
+                               collection_name="extensions/ct/tenants/"
+			       ":(tenant_id)/networks")
         controller = SecurityGroupController(QuantumManager.get_plugin())
         #import pdb
 	#pdb.set_trace()
@@ -780,7 +780,8 @@ class Security_groups(object):
         # Policy List definition
         parent_resource = dict(member_name="security_group",
                                collection_name="extensions/ct/tenants/"
-                               ":(tenant_id)/security_groups")
+                               ":(tenant_id)/networks/"
+                               ":(network_id)/security_groups")
         controller = PolicyController(QuantumManager.get_plugin())
         res = extensions.ResourceExtension('policies',
                                            controller,
@@ -790,7 +791,8 @@ class Security_groups(object):
         # Policy Entry definition
         parent_resource = dict(member_name="policy",
                                collection_name="extensions/ct/tenants/"
-                               ":(tenant_id)/security_groups/"
+                               ":(tenant_id)/networks/"
+			       ":(network_id)/security_groups/"
 			       ":(security_group_id)/policies")
         controller = PolicyEntryListController(QuantumManager.get_plugin())
         res = extensions.ResourceExtension('policy_entries',

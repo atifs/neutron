@@ -20,7 +20,7 @@ from ifmap_client.ifmap.response import Response, newSessionResult
 from ifmap_client.ifmap.metadata import Metadata
 
 def network_alloc_ifmap_id(tenant_uuid, net_name):
-    return "ct:network:%s:%s" %(tenant_uuid, net_name)
+    return "ct:net:%s:%s" %(tenant_uuid, net_name)
 
 def security_group_alloc_ifmap_id(tenant_uuid, sg_name):
     return "ct:sg:%s:%s" %(tenant_uuid, sg_name)
@@ -140,6 +140,7 @@ class ContrailConfigDB(object):
                              metadata = meta,
                              lifetime = 'forever')))
         result = mapclient.call('publish', pubreq)
+	return net_imid
 
     def security_group_create(self, tenant_uuid, sg_name):
         sg_imid = security_group_alloc_ifmap_id(tenant_uuid, sg_name)
