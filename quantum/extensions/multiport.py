@@ -113,3 +113,5 @@ class MultiportController(common.QuantumController, wsgi.Controller):
         builder = port_view.get_view_builder(request, self.version)
         result = [builder.build(port)['port'] for port in multiports]
         return dict(ports=result)
+
+    def index(self, request, 

@@ -24,7 +24,7 @@ class ContrailPlugin(object):
     .. attention::  remove db. ref and replace ctdb. with db.
     """
 
-    supported_extension_aliases = ["security_groups"]
+    supported_extension_aliases = ["vpc", "vn", "security_groups"]
     _cfgdb = None
 
     @classmethod
@@ -81,6 +81,17 @@ class ContrailPlugin(object):
                                           port_id=port_id,
                                           att_id=port['interface_id'],
                                           att_port_id=port['uuid'])
+
+    def create_vpc(self, tenant_id, vpc_name):
+        """
+        Creates a new Virtual Private Cloud, and assigns it
+        a symbolic name.
+        """
+        LOG.debug("ContrailPlugin.create_vpc() called")
+
+        vpc_id = self._cfgdb.vpc_create(tenant_id, vpc_name)
+
+        return {'vpc-id': vpc_id}
 
     # V1.1 api
     def get_all_networks(self, tenant_id, **kwargs):
@@ -283,7 +294,27 @@ class ContrailPlugin(object):
         self._get_port(tenant_id, net_id, port_id)
         db.port_unset_attachment(port_id, net_id)
 
-    def create_security_group(self, tenant_id, sg_name, sg_descr, **kwargs):
+    def create_vn(self, tenant_id, vpc_id, vn_name, **kwargs):
+        """
+        Creates a new Virtual Network.
+        """
+        LOG.debug("ContrailPlugin.create_vn() called")
+        vn_id = self._cfgdb.vn_create(tenant_id, vpc_id, vn_name)
+	#import pdb
+	#pdb.set_trace()
+        return {'vn-id': vn_id}
+
+    def update_subnets(self, tenant_id, vn_id, subnets, **kwargs):
+        LOG.debug("ContrailPlugin.update_subnet() called")
+        subnets = self._cfgdb.subnets_set(tenant_id, vn_id, subnets)
+	return {}
+
+    def get_subnets(self, tenant_id, vn_id):
+        LOG.debug("ContrailPlugin.get_subnets() called")
+        subnets = self._cfgdb.subnets_get(tenant_id, vn_id)
+	return subnets
+
+    def create_security_group(self, tenant_id, vpc_id, sg_name, **kwargs):
         """
         Creates a new Security Group.
         """
@@ -291,10 +322,10 @@ class ContrailPlugin(object):
         .. attention:: sg_descr is being ignored
         """
         LOG.debug("ContrailPlugin.create_security_group() called")
-        sg_id = self._cfgdb.security_group_create(tenant_id, sg_name)
+        sg_id = self._cfgdb.security_group_create(tenant_id, vpc_id, sg_name)
 	#import pdb
 	#pdb.set_trace()
-        return {'security_group-id': sg_id}
+        return {'sg-id': sg_id}
 
     def create_policy(self, tenant_id, sg_id, pol_name, pol_descr, **kwargs):
         """

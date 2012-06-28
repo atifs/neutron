@@ -17,6 +17,6 @@ def get_view_builder(req, version):
 
 class ViewBuilder10(object):
 
-    def build(self, sg_data):
-        """Generates a security group entity"""
-        return dict(id=sg_data['sg-id'])
+    def build(self, vpc_data):
+        """Generates a VPC entity"""
+        return dict(id = vpc_data['vpc-id'])
