@@ -38,7 +38,7 @@ class ContrailPlugin(object):
             """
             .. attention:: pick vals below from config
             """
-            cls._cfgdb = ctdb.config_db.ContrailConfigDB('192.168.1.17', '8443')
+            cls._cfgdb = ctdb.config_db.ConfigDBForwarder('127.0.0.1', '8081')
 
     def __init__(self):
         db.configure_db({'sql_connection': 'sqlite:///:memory:'})
@@ -82,16 +82,24 @@ class ContrailPlugin(object):
                                           att_id=port['interface_id'],
                                           att_port_id=port['uuid'])
 
-    def create_vpc(self, tenant_id, vpc_name):
+    def create_vpc(self, request):
         """
         Creates a new Virtual Private Cloud, and assigns it
         a symbolic name.
         """
         LOG.debug("ContrailPlugin.create_vpc() called")
+        rsp = self._cfgdb.vpc_create(request)
+        return rsp 
 
-        vpc_id = self._cfgdb.vpc_create(tenant_id, vpc_name)
+    def get_vpc(self, request):
+        LOG.debug("ContrailPlugin.get_vpc() called")
+        vpc = self._cfgdb.vpc_get(request)
+	return vpc
 
-        return {'vpc-id': vpc_id}
+    def delete_vpc(self, request):
+        LOG.debug("ContrailPlugin.delete_vpc() called")
+        result = self._cfgdb.vpc_delete(request)
+	return result
 
     # V1.1 api
     def get_all_networks(self, tenant_id, **kwargs):
@@ -294,59 +302,60 @@ class ContrailPlugin(object):
         self._get_port(tenant_id, net_id, port_id)
         db.port_unset_attachment(port_id, net_id)
 
-    def create_vn(self, tenant_id, vpc_id, vn_name, **kwargs):
+    def create_vn(self, request):
         """
         Creates a new Virtual Network.
         """
         LOG.debug("ContrailPlugin.create_vn() called")
-        vn_id = self._cfgdb.vn_create(tenant_id, vpc_id, vn_name)
-	#import pdb
-	#pdb.set_trace()
-        return {'vn-id': vn_id}
+        rsp = self._cfgdb.vn_create(request)
+        return rsp
 
-    def update_subnets(self, tenant_id, vn_id, subnets, **kwargs):
-        LOG.debug("ContrailPlugin.update_subnet() called")
-        subnets = self._cfgdb.subnets_set(tenant_id, vn_id, subnets)
-	return {}
+    def get_vn(self, request):
+        LOG.debug("ContrailPlugin.get_vn() called")
+        vn = self._cfgdb.vn_get(request)
+	return vn
 
-    def get_subnets(self, tenant_id, vn_id):
+    def delete_vn(self, request):
+        LOG.debug("ContrailPlugin.delete_vn() called")
+        result = self._cfgdb.vn_delete(request)
+	return result
+
+    def set_subnets(self, request):
+        LOG.debug("ContrailPlugin.set_subnet() called")
+        rsp = self._cfgdb.subnets_set(request)
+	return rsp
+
+    def get_subnets(self, request):
         LOG.debug("ContrailPlugin.get_subnets() called")
-        subnets = self._cfgdb.subnets_get(tenant_id, vn_id)
+        subnets = self._cfgdb.subnets_get(request)
 	return subnets
 
-    def create_security_group(self, tenant_id, vpc_id, sg_name, **kwargs):
+    def create_security_group(self, request):
         """
         Creates a new Security Group.
         """
-        """
-        .. attention:: sg_descr is being ignored
-        """
         LOG.debug("ContrailPlugin.create_security_group() called")
-        sg_id = self._cfgdb.security_group_create(tenant_id, vpc_id, sg_name)
-	#import pdb
-	#pdb.set_trace()
-        return {'sg-id': sg_id}
+        rsp = self._cfgdb.security_group_create(request)
+        return rsp
 
-    def create_policy(self, tenant_id, sg_id, pol_name, pol_descr, **kwargs):
+    def create_policy(self, request, tenant_id, sg_id, pol_name, pol_descr, **kwargs):
         """
         Creates a new Policy.
         """
-        """
-        .. attention:: pol_descr is being ignored
-        """
         LOG.debug("ContrailPlugin.create_policy() called")
-        pol_id = self._cfgdb.policy_create(tenant_id, sg_id, pol_name)
-        return {'policy-id': pol_id}
+        rsp = self._cfgdb.policy_create(request)
+        return rsp
 
-    def create_policy_entry_list(self, tenant_id, pol_id, pe_list):
+    def create_policy_entry_list(self, request, tenant_id, pol_id, pe_list):
         """
         Creates a new Policy Entry List.
         """
         LOG.debug("ContrailPlugin.create_policy_entry_list() called")
-        self._cfgdb.policy_entry_list_create(tenant_id, pol_id,
+        self._cfgdb.policy_entry_list_create(request, tenant_id, pol_id,
 	                                                  pe_list)
 
     def get_policy_entry(self, pe_id):
         LOG.debug("ContrailPlugin.get_policy_entry() called")
         policy_entry = self._cfgdb.policy_entry_get(pe_id)
+	return policy_entry
 

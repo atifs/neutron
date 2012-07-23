@@ -18,8 +18,6 @@ import webob
 import logging
 
 from quantum.api import api_common as common
-from quantum.extensions import _security_groups_view as security_groups_view
-from quantum.extensions import _policy_view as policy_view
 from quantum.extensions import extensions
 from quantum.manager import QuantumManager
 from quantum import wsgi
@@ -28,11 +26,6 @@ from quantum import wsgi
 LOG = logging.getLogger(__name__)
 
 class SecurityGroupController(common.QuantumController, wsgi.Controller):
-    _securitygroup_ops_param_list = [
-        {'param-name': 'sg_vpc_id', 'required': True},
-        {'param-name': 'sg_name', 'required': True},
-        ]
-
     def __init__(self, plugin):
         self._resource_name = 'sg'
         self._plugin = plugin
@@ -40,56 +33,19 @@ class SecurityGroupController(common.QuantumController, wsgi.Controller):
 
     def create(self, request, tenant_id):
         """ Creates a new security group for a given tenant """
-        try:
-	    #import pdb
-	    #pdb.set_trace()
-            body = self._deserialize(request.body, request.get_content_type())
-            req_body = self._prepare_request_body(
-                body, self._securitygroup_ops_param_list)
-            req_params = req_body[self._resource_name]
-
-        except exc.HTTPError as exp:
-            return faults.Fault(exp)
-
-        security_group = self._plugin.create_security_group(tenant_id,
-                                                   req_params['sg_vpc_id'],
-                                                   req_params['sg_name'])
-        builder = security_groups_view.get_view_builder(request, self.version)
-        result = builder.build(security_group)
-
-        return dict(sg = result)
+        security_group = self._plugin.create_security_group(request)
+	return security_group
 
 class PolicyController(common.QuantumController, wsgi.Controller):
-    _policy_ops_param_list = [
-        {'param-name': 'name', 'required': True},
-        {'param-name': 'description', 'required': True},
-        {'param-name': 'position', 'required': False}, # posn in security group
-        ]
-
     def __init__(self, plugin):
         self._resource_name = 'policy'
         self._plugin = plugin
         self.version = "1.0"
 
-    def create(self, request, tenant_id, network_id, security_group_id):
+    def create(self, request):
         """ Creates a new policy for a given tenant """
-        try:
-            body = self._deserialize(request.body, request.get_content_type())
-            req_body = self._prepare_request_body(
-                                 body, self._policy_ops_param_list)
-            req_params = req_body[self._resource_name]
-
-        except exc.HTTPError as exp:
-            return faults.Fault(exp)
-
-	policy = self._plugin.create_policy(tenant_id,
-	                                    security_group_id,
-					    req_params['name'],
-					    req_params['description'])
-
-        builder = policy_view.get_view_builder(request, self.version)
-        result = builder.build(policy)
-        return dict(policy=result)
+	policy = self._plugin.create_policy(request)
+	return policy
 
 class PolicyEntryListController(common.QuantumController, wsgi.Controller):
     _policyentrylist_ops_param_list = [
@@ -175,8 +131,6 @@ class Security_groups(object):
         parent_resource = dict(member_name="tenant",
                                collection_name="extensions/ct/tenants")
         controller = SecurityGroupController(QuantumManager.get_plugin())
-        #import pdb
-	#pdb.set_trace()
         res = extensions.ResourceExtension('sg',
                                            controller,
 					   parent = parent_resource)

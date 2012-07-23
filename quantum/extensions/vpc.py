@@ -12,13 +12,12 @@
 import urllib
 from xml.dom import minidom
 
-from webob import exc
+from webob import exc, Response
 import webob
 
 import logging
 
 from quantum.api import api_common as common
-from quantum.extensions import _vpc_view as vpc_view
 from quantum.extensions import extensions
 from quantum.manager import QuantumManager
 from quantum import wsgi
@@ -60,8 +59,6 @@ class Vpc(object):
         parent_resource = dict(member_name="tenant",
                                collection_name="extensions/ct/tenants")
         controller = VpcController(QuantumManager.get_plugin())
-        #import pdb
-	#pdb.set_trace()
         res = extensions.ResourceExtension('vpc',
                                            controller,
 					   parent = parent_resource)
@@ -70,10 +67,6 @@ class Vpc(object):
         return resources
 
 class VpcController(common.QuantumController, wsgi.Controller):
-    _vpc_ops_param_list = [
-        {'param-name': 'vpc_name', 'required': True},
-        ]
-
     def __init__(self, plugin):
         self._resource_name = 'vpc'
         self._plugin = plugin
@@ -81,18 +74,24 @@ class VpcController(common.QuantumController, wsgi.Controller):
 
     def create(self, request, tenant_id):
         """ Creates a new vpc for a given tenant """
-        try:
-            body = self._deserialize(request.body, request.get_content_type())
-            req_body = self._prepare_request_body(
-                body, self._vpc_ops_param_list)
-            req_params = req_body[self._resource_name]
+        crt_rsp = self._plugin.create_vpc(request)
+	response = Response()
+	response.status = crt_rsp[0]
+	response.text = crt_rsp[1]
+	return response
 
-        except exc.HTTPError as exp:
-            return faults.Fault(exp)
+    def show(self, request, tenant_id, id):
+        """ Return details of VPC matching vpc_id """
+        show_rsp = self._plugin.get_vpc(request)
+	response = Response()
+	response.status = show_rsp[0]
+	response.text = show_rsp[1]
+	return response
 
-        vpc = self._plugin.create_vpc(tenant_id, req_params['vpc_name'])
-
-        builder = vpc_view.get_view_builder(request, self.version)
-        result = builder.build(vpc)
-
-        return dict(vpc = result)
+    def delete(self, request, tenant_id, id):
+        """ Deletes VPC matching vpc_id """
+        del_rsp = self._plugin.delete_vpc(request)
+	response = Response()
+	response.status = del_rsp[0]
+	response.text = del_rsp[1]
+	return response
