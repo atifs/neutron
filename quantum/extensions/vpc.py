@@ -75,23 +75,20 @@ class VpcController(common.QuantumController, wsgi.Controller):
     def create(self, request, tenant_id):
         """ Creates a new vpc for a given tenant """
         crt_rsp = self._plugin.create_vpc(request)
-	response = Response()
-	response.status = crt_rsp[0]
-	response.text = crt_rsp[1]
+	response = Response(body = crt_rsp.text,
+                            headers = crt_rsp.headers)
 	return response
 
     def show(self, request, tenant_id, id):
         """ Return details of VPC matching vpc_id """
         show_rsp = self._plugin.get_vpc(request)
-	response = Response()
-	response.status = show_rsp[0]
-	response.text = show_rsp[1]
+	response = Response(body = show_rsp.text,
+                            headers = show_rsp.headers)
 	return response
 
     def delete(self, request, tenant_id, id):
         """ Deletes VPC matching vpc_id """
         del_rsp = self._plugin.delete_vpc(request)
-	response = Response()
-	response.status = del_rsp[0]
-	response.text = del_rsp[1]
+	response = Response(body = del_rsp.text,
+                            headers = del_rsp.headers)
 	return response

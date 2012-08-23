@@ -26,9 +26,10 @@ class ContrailPlugin(object):
 
     supported_extension_aliases = ["vpc", "vn", "security_groups"]
     _cfgdb = None
+    _operdb = None
 
     @classmethod
-    def _connect_to_config_db(cls):
+    def _connect_to_db(cls):
         """
         Many instantiations of plugin (base + extensions) but need to have 
 	only one config db conn (else error from ifmap-server)
@@ -36,14 +37,15 @@ class ContrailPlugin(object):
 	if cls._cfgdb is None:
             # Initialize connection to DB and add default entries
             """
-            .. attention:: pick vals below from config
+            .. attention:: TODO pick vals below from config
             """
-            cls._cfgdb = ctdb.config_db.ConfigDBForwarder('127.0.0.1', '8081')
+            cls._cfgdb = ctdb.config_db.DBInterface('127.0.0.1', '8081')
+            # TOD Treat the 2 DBs as logically separate? (same backend for now)
+            cls._operdb = cls._cfgdb
 
     def __init__(self):
         db.configure_db({'sql_connection': 'sqlite:///:memory:'})
-        ContrailPlugin._net_counter = 0
-	ContrailPlugin._connect_to_config_db()
+	ContrailPlugin._connect_to_db()
 
 
     def _get_network(self, tenant_id, network_id):
@@ -87,17 +89,16 @@ class ContrailPlugin(object):
         Creates a new Virtual Private Cloud, and assigns it
         a symbolic name.
         """
-        LOG.debug("ContrailPlugin.create_vpc() called")
-        rsp = self._cfgdb.vpc_create(request)
-        return rsp 
+        LOG.debug("Plugin.create_vpc() called")
+        return self._cfgdb.vpc_create(request)
 
     def get_vpc(self, request):
-        LOG.debug("ContrailPlugin.get_vpc() called")
+        LOG.debug("Plugin.get_vpc() called")
         vpc = self._cfgdb.vpc_get(request)
 	return vpc
 
     def delete_vpc(self, request):
-        LOG.debug("ContrailPlugin.delete_vpc() called")
+        LOG.debug("Plugin.delete_vpc() called")
         result = self._cfgdb.vpc_delete(request)
 	return result
 
@@ -108,11 +109,11 @@ class ContrailPlugin(object):
         <network_uuid, network_name> for
         the specified tenant.
         """
-        LOG.debug("ContrailPlugin.get_all_networks() called")
+        LOG.debug("Plugin.get_all_networks() called")
         filter_opts = kwargs.get('filter_opts', None)
         if not filter_opts is None and len(filter_opts) > 0:
             LOG.debug("filtering options were passed to the plugin"
-                      "but the contrail plugin does not support them")
+                      "but the plugin does not support them")
         nets = []
         for net in db.network_list(tenant_id):
             net_item = {'net-id': str(net.uuid),
@@ -127,22 +128,24 @@ class ContrailPlugin(object):
         #          verbose=verbose)
         if not filters is None:
             LOG.debug("filtering options were passed to the plugin"
-                      "but the contrail plugin does not support them")
-        nets = []
-        for net in db.network_list(context.tenant_id):
-            net_item = {'net-id': str(net.uuid),
-                        'net-name': net.name,
-                        'net-op-status': net.op_status}
-            nets.append(net_item)
-        return nets
-        return []
+                      "but the plugin does not support them")
+
+        # TODO contact cfg api server and implement this
+        #    net_item = {'net-id': str(net.uuid),
+        #                'net-name': net.name,
+        #                'net-op-status': net.op_status}
+        #    nets.append(net_item)
+        #return nets
+        return [{'id': "ct:vn:infra:vpc1:vn1",
+                 'name': "vn1",
+                 'tenant_id': 'infra'}]
 
     def get_network_details(self, tenant_id, net_id):
         """
         retrieved a list of all the remote vifs that
         are attached to the network
         """
-        LOG.debug("ContrailPlugin.get_network_details() called")
+        LOG.debug("Plugin.get_network_details() called")
         net = self._get_network(tenant_id, net_id)
         # Retrieves ports for network
         ports = self.get_all_ports(tenant_id, net_id)
@@ -156,7 +159,7 @@ class ContrailPlugin(object):
         Creates a new Virtual Network, and assigns it
         a symbolic name.
         """
-        LOG.debug("ContrailPlugin.create_network() called")
+        LOG.debug("Plugin.create_network() called")
 
         net_name = network['network']['name']
         tenant_id = context.to_dict()['tenant_id']
@@ -180,7 +183,7 @@ class ContrailPlugin(object):
         Deletes the network with the specified network identifier
         belonging to the specified tenant.
         """
-        LOG.debug("ContrailPlugin.delete_network() called")
+        LOG.debug("Plugin.delete_network() called")
         net = self._get_network(tenant_id, net_id)
         # Verify that no attachments are plugged into the network
         if net:
@@ -196,59 +199,58 @@ class ContrailPlugin(object):
         """
         Updates the attributes of a particular Virtual Network.
         """
-        LOG.debug("ContrailPlugin.update_network() called")
+        LOG.debug("Plugin.update_network() called")
         net = db.network_update(net_id, tenant_id, **kwargs)
         return net
 
-    def get_all_ports(self, tenant_id, net_id, **kwargs):
+    def get_ports(self, context, filters=None, show=None, verbose=None):
         """
         Retrieves all port identifiers belonging to the
         specified Virtual Network.
         """
-        LOG.debug("ContrailPlugin.get_all_ports() called")
-        db.validate_network_ownership(tenant_id, net_id)
-        filter_opts = kwargs.get('filter_opts', None)
-        if not filter_opts is None and len(filter_opts) > 0:
-            LOG.debug("filtering options were passed to the plugin"
-                      "but the contrail plugin does not support them")
-        port_ids = []
-        ports = db.port_list(net_id)
-        for x in ports:
-            d = {'port-id': str(x.uuid)}
-            port_ids.append(d)
-        return port_ids
+        LOG.debug("Plugin.get_all_ports() called")
+        #import pdb; pdb.set_trace()
+
+        # TODO validate network ownershiop of net_id by tenant_id
+        ports = self._operdb.port_list(tenant_id_filt = ['infra'],
+                                       vpc_id_filt = None,
+                                       vn_id_filt = None,
+                                       instance_id_filt = filters['device_id'],
+                                       detailed = True)
+        return ports
+
 
     def get_port_details(self, tenant_id, net_id, port_id):
         """
         This method allows the user to retrieve a remote interface
         that is attached to this particular port.
         """
-        LOG.debug("ContrailPlugin.get_port_details() called")
+        LOG.debug("Plugin.get_port_details() called")
         port = self._get_port(tenant_id, net_id, port_id)
         return {'port-id': str(port.uuid),
                 'attachment': port.interface_id,
                 'port-state': port.state,
                 'port-op-status': port.op_status}
 
-    def create_port(self, tenant_id, net_id, port_state=None, **kwargs):
+    def create_port(self, context, **kwargs):
         """
         Creates a port on the specified Virtual Network.
         """
-        LOG.debug("ContrailPlugin.create_port() called")
-        # verify net_id
-        self._get_network(tenant_id, net_id)
-        port = db.port_create(net_id, port_state)
-        # Put operational status UP
-        db.port_update(port.uuid, net_id,
-                       op_status=OperationalStatus.UP)
-        port_item = {'port-id': str(port.uuid)}
+        LOG.debug("Plugin.create_port() called")
+        #import pdb; pdb.set_trace()
+        port = kwargs['port']['port']
+        
+        # TODO verify net_id
+        new_port = self._operdb.port_create(port)
+        port_item = {'id': new_port['id']}
+
         return port_item
 
     def update_port(self, tenant_id, net_id, port_id, **kwargs):
         """
         Updates the attributes of a port on the specified Virtual Network.
         """
-        LOG.debug("ContrailPlugin.update_port() called")
+        LOG.debug("Plugin.update_port() called")
         #validate port and network ids
         self._get_network(tenant_id, net_id)
         self._get_port(tenant_id, net_id, port_id)
@@ -264,7 +266,7 @@ class ContrailPlugin(object):
         the remote interface is first un-plugged and then the port
         is deleted.
         """
-        LOG.debug("ContrailPlugin.delete_port() called")
+        LOG.debug("Plugin.delete_port() called")
         net = self._get_network(tenant_id, net_id)
         port = self._get_port(tenant_id, net_id, port_id)
         if port['interface_id']:
@@ -283,7 +285,7 @@ class ContrailPlugin(object):
         Attaches a remote interface to the specified port on the
         specified Virtual Network.
         """
-        LOG.debug("ContrailPlugin.plug_interface() called")
+        LOG.debug("Plugin.plug_interface() called")
         port = self._get_port(tenant_id, net_id, port_id)
         # Validate attachment
         self._validate_attachment(tenant_id, net_id, port_id,
@@ -298,7 +300,7 @@ class ContrailPlugin(object):
         Detaches a remote interface from the specified port on the
         specified Virtual Network.
         """
-        LOG.debug("ContrailPlugin.unplug_interface() called")
+        LOG.debug("Plugin.unplug_interface() called")
         self._get_port(tenant_id, net_id, port_id)
         db.port_unset_attachment(port_id, net_id)
 
@@ -306,35 +308,46 @@ class ContrailPlugin(object):
         """
         Creates a new Virtual Network.
         """
-        LOG.debug("ContrailPlugin.create_vn() called")
+        LOG.debug("Plugin.create_vn() called")
         rsp = self._cfgdb.vn_create(request)
         return rsp
 
     def get_vn(self, request):
-        LOG.debug("ContrailPlugin.get_vn() called")
+        LOG.debug("Plugin.get_vn() called")
         vn = self._cfgdb.vn_get(request)
 	return vn
 
     def delete_vn(self, request):
-        LOG.debug("ContrailPlugin.delete_vn() called")
+        LOG.debug("Plugin.delete_vn() called")
         result = self._cfgdb.vn_delete(request)
 	return result
 
-    def set_subnets(self, request):
-        LOG.debug("ContrailPlugin.set_subnet() called")
+    def set_subnets_vnc(self, request):
+        LOG.debug("Plugin.set_subnet() called")
         rsp = self._cfgdb.subnets_set(request)
 	return rsp
 
-    def get_subnets(self, request):
-        LOG.debug("ContrailPlugin.get_subnets() called")
-        subnets = self._cfgdb.subnets_get(request)
+    def get_subnets_vnc(self, request):
+        LOG.debug("Plugin.get_subnets_vnc() called")
+        subnets = self._cfgdb.subnets_get_vnc(request)
+	return subnets
+
+    def get_subnets(self, context, filters = None, verbose = None, show = None):
+        """
+        Called from Quantum API -> get_<resource>
+        """
+        LOG.debug("Plugin.get_subnets() called")
+        subnets = []
+        import pdb; pdb.set_trace()
+        subnets = self._cfgdb.subnets_get_quantum(filters['id'])
+
 	return subnets
 
     def create_security_group(self, request):
         """
         Creates a new Security Group.
         """
-        LOG.debug("ContrailPlugin.create_security_group() called")
+        LOG.debug("Plugin.create_security_group() called")
         rsp = self._cfgdb.security_group_create(request)
         return rsp
 
@@ -342,7 +355,7 @@ class ContrailPlugin(object):
         """
         Creates a new Policy.
         """
-        LOG.debug("ContrailPlugin.create_policy() called")
+        LOG.debug("Plugin.create_policy() called")
         rsp = self._cfgdb.policy_create(request)
         return rsp
 
@@ -350,12 +363,12 @@ class ContrailPlugin(object):
         """
         Creates a new Policy Entry List.
         """
-        LOG.debug("ContrailPlugin.create_policy_entry_list() called")
+        LOG.debug("Plugin.create_policy_entry_list() called")
         self._cfgdb.policy_entry_list_create(request, tenant_id, pol_id,
 	                                                  pe_list)
 
     def get_policy_entry(self, pe_id):
-        LOG.debug("ContrailPlugin.get_policy_entry() called")
+        LOG.debug("Plugin.get_policy_entry() called")
         policy_entry = self._cfgdb.policy_entry_get(pe_id)
 	return policy_entry
 

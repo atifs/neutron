@@ -48,5 +48,5 @@ def network(network_data):
 def subnet(subnet_data):
     """Represents a view for a subnet object"""
     keys = ('id', 'network_id', 'tenant_id', 'gateway_ip', 'ip_version',
-            'prefix')
+            'cidr')
     return resource(subnet_data, keys)

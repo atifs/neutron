@@ -85,25 +85,22 @@ class VnController(common.QuantumController, wsgi.Controller):
     def create(self, request, tenant_id):
         """ Creates a new VN in a given VPC """
         crt_rsp = self._plugin.create_vn(request)
-	response = Response()
-	response.status = crt_rsp[0]
-	response.text = crt_rsp[1]
+	response = Response(body = crt_rsp.text,
+                            headers = crt_rsp.headers)
 	return response
 
     def show(self, request, tenant_id, id):
         """ Return details of VPC matching vpc_id """
         show_rsp = self._plugin.get_vn(request)
-	response = Response()
-	response.status = show_rsp[0]
-	response.text = show_rsp[1]
+	response = Response(body = show_rsp.text,
+                            headers = show_rsp.headers)
 	return response
 
     def delete(self, request, tenant_id, id):
         """ Deletes VPC matching vpc_id """
         del_rsp = self._plugin.delete_vn(request)
-	response = Response()
-	response.status = del_rsp[0]
-	response.text = del_rsp[1]
+	response = Response(body = del_rsp.text,
+                            headers = del_rsp.headers)
 	return response
 
 class SubnetController(common.QuantumController, wsgi.Controller):
@@ -114,16 +111,14 @@ class SubnetController(common.QuantumController, wsgi.Controller):
 
     def create(self, request, tenant_id, vn_id):
         """ Sets subnet list of given VN """
-        crt_rsp = self._plugin.set_subnets(request)
-	response = Response()
-	response.status = crt_rsp[0]
-	response.text = crt_rsp[1]
+        crt_rsp = self._plugin.set_subnets_vnc(request)
+	response = Response(body = crt_rsp.text,
+                            headers = crt_rsp.headers)
 	return response
 
     def index(self, request, tenant_id, vn_id):
         """ Gets subnet list of given VN """
-        list_rsp = self._plugin.get_subnets(request)
-	response = Response()
-	response.status = list_rsp[0]
-	response.text = list_rsp[1]
+        list_rsp = self._plugin.get_subnets_vnc(request)
+	response = Response(body = list_rsp.text,
+                            headers = list_rsp.headers)
 	return response
