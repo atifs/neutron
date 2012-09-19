@@ -19,14 +19,11 @@
 from copy import deepcopy
 import inspect
 import logging
-import platform
 
-from quantum.common import exceptions as exc
-from quantum.common import utils
+from quantum.openstack.common import importutils
+from quantum.plugins.cisco.common import cisco_constants as const
 from quantum.plugins.cisco.l2network_model_base import L2NetworkModelBase
 from quantum.plugins.cisco import l2network_plugin_configuration as conf
-from quantum.plugins.cisco.common import cisco_constants as const
-from quantum.plugins.cisco.common import cisco_exceptions as cexc
 
 
 LOG = logging.getLogger(__name__)
@@ -42,13 +39,13 @@ class L2NetworkSingleBlade(L2NetworkModelBase):
 
     def __init__(self):
         for key in conf.PLUGINS[const.PLUGINS].keys():
-            self._plugins[key] = utils.import_object(
-                conf.PLUGINS[const.PLUGINS][key])
+            plugin_obj = conf.PLUGINS[const.PLUGINS][key]
+            self._plugins[key] = importutils.import_object(plugin_obj)
             LOG.debug("Loaded device plugin %s\n" %
                       conf.PLUGINS[const.PLUGINS][key])
             if key in conf.PLUGINS[const.INVENTORY].keys():
-                self._inventory[key] = utils.import_object(
-                    conf.PLUGINS[const.INVENTORY][key])
+                inventory_obj = conf.PLUGINS[const.INVENTORY][key]
+                self._inventory[key] = importutils.import_object(inventory_obj)
                 LOG.debug("Loaded device inventory %s\n" %
                           conf.PLUGINS[const.INVENTORY][key])
 
@@ -92,8 +89,8 @@ class L2NetworkSingleBlade(L2NetworkModelBase):
         if args and isinstance(args[-1], dict):
             kwargs.update(args.pop())
 
-        return getattr(self._plugins[plugin_key], function_name)(*args,
-                                                                 **kwargs)
+        return getattr(self._plugins[plugin_key],
+                       function_name)(*args, **kwargs)
 
     def get_all_networks(self, args):
         """Not implemented for this model"""

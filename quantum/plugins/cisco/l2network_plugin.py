@@ -18,18 +18,17 @@
 
 import inspect
 import logging
-import re
 
 from quantum.common import exceptions as exc
-from quantum.common import utils
-from quantum.quantum_plugin_base import QuantumPluginBase
-from quantum.plugins.cisco import l2network_plugin_configuration as conf
+from quantum.openstack.common import importutils
 from quantum.plugins.cisco.common import cisco_constants as const
 from quantum.plugins.cisco.common import cisco_credentials as cred
 from quantum.plugins.cisco.common import cisco_exceptions as cexc
 from quantum.plugins.cisco.common import cisco_utils as cutil
 from quantum.plugins.cisco.db import api as db
 from quantum.plugins.cisco.db import l2network_db as cdb
+from quantum.plugins.cisco import l2network_plugin_configuration as conf
+from quantum.quantum_plugin_base import QuantumPluginBase
 
 
 LOG = logging.getLogger(__name__)
@@ -44,8 +43,8 @@ class L2Network(QuantumPluginBase):
     def __init__(self):
         cdb.initialize()
         cred.Store.initialize()
-        self._model = utils.import_object(conf.MODEL_CLASS)
-        self._vlan_mgr = utils.import_object(conf.MANAGER_CLASS)
+        self._model = importutils.import_object(conf.MODEL_CLASS)
+        self._vlan_mgr = importutils.import_object(conf.MANAGER_CLASS)
         LOG.debug("L2Network plugin initialization done successfully\n")
 
     """
@@ -289,8 +288,8 @@ class L2Network(QuantumPluginBase):
         port = db.port_get(net_id, port_id)
         attachment_id = port[const.INTERFACEID]
         if attachment_id is None:
-            raise exc.InvalidDetach(port_id=port_id, net_id=net_id,
-                                    att_id=remote_interface_id)
+            raise cexc.InvalidDetach(port_id=port_id, net_id=net_id,
+                                     att_id=remote_interface_id)
         self._invoke_device_plugins(self._func_name(), [tenant_id, net_id,
                                                         port_id])
         attachment_id = attachment_id[:const.UUID_LENGTH]
@@ -392,7 +391,7 @@ class L2Network(QuantumPluginBase):
             portprofile = cdb.get_portprofile(tenant_id, portprofile_id)
         except Exception:
             raise cexc.PortProfileNotFound(tenant_id=tenant_id,
-                                      portprofile_id=portprofile_id)
+                                           portprofile_id=portprofile_id)
 
         cdb.remove_pp_binding(tenant_id, port_id, portprofile_id)
 

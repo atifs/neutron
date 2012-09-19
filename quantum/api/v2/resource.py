@@ -16,15 +16,15 @@
 """
 Utility methods for working with WSGI servers redux
 """
-import json
 import logging
 
 import webob
-import webob.exc
 import webob.dec
+import webob.exc
 
-from quantum import context
 from quantum.common import exceptions
+from quantum import context
+from quantum.openstack.common import jsonutils as json
 from quantum import wsgi
 
 
@@ -59,15 +59,13 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
     format_types = {'xml': 'application/xml',
                     'json': 'application/json'}
     action_status = dict(create=201, delete=204)
-    default_faults = {}
 
     default_deserializers.update(deserializers or {})
     default_serializers.update(serializers or {})
-    default_faults.update(faults or {})
 
     deserializers = default_deserializers
     serializers = default_serializers
-    faults = default_faults
+    faults = faults or {}
 
     @webob.dec.wsgify(RequestClass=Request)
     def resource(request):
@@ -90,8 +88,6 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
 
         try:
             if request.body:
-	        #import pdb
-		#pdb.set_trace()
                 args['body'] = deserializer(request.body)
 
             method = getattr(controller, action)
@@ -99,12 +95,11 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
             result = method(request=request, **args)
         except exceptions.QuantumException as e:
             LOG.exception('%s failed' % action)
-            e_type = type(e)
             body = serializer({'QuantumError': str(e)})
             kwargs = {'body': body, 'content_type': content_type}
-            if e_type in faults:
-                fault = faults[e_type]
-                raise fault(**kwargs)
+            for fault in faults:
+                if isinstance(e, fault):
+                    raise faults[fault](**kwargs)
             raise webob.exc.HTTPInternalServerError(**kwargs)
         except webob.exc.HTTPException as e:
             LOG.exception('%s failed' % action)
@@ -114,16 +109,21 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
         except Exception as e:
             # NOTE(jkoelker) Everyting else is 500
             LOG.exception('%s failed' % action)
-            body = serializer({'QuantumError': str(e)})
+            # Do not expose details of 500 error to clients.
+            msg = _('Request Failed: internal server error while '
+                    'processing your request.')
+            body = serializer({'QuantumError': msg})
             kwargs = {'body': body, 'content_type': content_type}
             raise webob.exc.HTTPInternalServerError(**kwargs)
 
         status = action_status.get(action, 200)
+        body = serializer(result)
         # NOTE(jkoelker) Comply with RFC2616 section 9.7
         if status == 204:
             content_type = ''
+            body = None
 
         return webob.Response(request=request, status=status,
                               content_type=content_type,
-                              body=serializer(result))
+                              body=body)
     return resource

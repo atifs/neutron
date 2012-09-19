@@ -38,13 +38,13 @@
 #    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import logging
-import os
 import sys
 import unittest
 
-from nose import config
 from nose import core
 from nose import result
+
+from quantum.common import constants
 
 
 class _AnsiColorizer(object):
@@ -101,9 +101,9 @@ class _Win32Colorizer(object):
     See _AnsiColorizer docstring.
     """
     def __init__(self, stream):
-        from win32console import GetStdHandle, STD_OUT_HANDLE, \
-             FOREGROUND_RED, FOREGROUND_BLUE, FOREGROUND_GREEN, \
-             FOREGROUND_INTENSITY
+        from win32console import GetStdHandle, STD_OUT_HANDLE
+        from win32console import FOREGROUND_RED, FOREGROUND_BLUE
+        from win32console import FOREGROUND_GREEN, FOREGROUND_INTENSITY
         red, green, blue, bold = (FOREGROUND_RED, FOREGROUND_GREEN,
                                   FOREGROUND_BLUE, FOREGROUND_INTENSITY)
         self.stream = stream
@@ -253,9 +253,9 @@ class QuantumTestResult(result.TextTestResult):
 class QuantumTestRunner(core.TextTestRunner):
     def _makeResult(self):
         return QuantumTestResult(self.stream,
-                              self.descriptions,
-                              self.verbosity,
-                              self.config)
+                                 self.descriptions,
+                                 self.verbosity,
+                                 self.config)
 
 
 def run_tests(c=None):
@@ -275,8 +275,8 @@ def run_tests(c=None):
         return True
 
     runner = QuantumTestRunner(stream=c.stream,
-                            verbosity=c.verbosity,
-                            config=c)
+                               verbosity=c.verbosity,
+                               config=c)
     return not core.run(config=c, testRunner=runner)
 
 # describes parameters used by different unit/functional tests
@@ -285,6 +285,6 @@ def run_tests(c=None):
 # quantum/plugins/openvswitch/ )
 test_config = {
     "plugin_name": "quantum.plugins.sample.SamplePlugin.FakePlugin",
-    "default_net_op_status": "UP",
-    "default_port_op_status": "UP",
+    "default_net_op_status": constants.NET_STATUS_ACTIVE,
+    "default_port_op_status": constants.PORT_STATUS_ACTIVE,
 }

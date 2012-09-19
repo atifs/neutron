@@ -29,10 +29,28 @@ import webob.exc
 from quantum.common import exceptions
 import quantum.extensions
 from quantum.manager import QuantumManager
+from quantum.openstack.common import cfg
+from quantum.openstack.common import importutils
 from quantum import wsgi
 
 
 LOG = logging.getLogger('quantum.api.extensions')
+
+# Besides the supported_extension_aliases in plugin class,
+# we also support register enabled extensions here so that we
+# can load some mandatory files (such as db models) before initialize plugin
+ENABLED_EXTS = {
+    'quantum.plugins.linuxbridge.lb_quantum_plugin.LinuxBridgePluginV2':
+    {
+        'ext_alias': ["quotas"],
+        'ext_db_models': ['quantum.extensions._quotav2_model.Quota'],
+    },
+    'quantum.plugins.openvswitch.ovs_quantum_plugin.OVSQuantumPluginV2':
+    {
+        'ext_alias': ["quotas"],
+        'ext_db_models': ['quantum.extensions._quotav2_model.Quota'],
+    },
+}
 
 
 class PluginInterface(object):
@@ -131,6 +149,23 @@ class ExtensionDescriptor(object):
         request_exts = []
         return request_exts
 
+    def get_extended_resources(self, version):
+        """retrieve extended resources or attributes for core resources.
+
+        Extended attributes are implemented by a core plugin similarly
+        to the attributes defined in the core, and can appear in
+        request and response messages. Their names are scoped with the
+        extension's prefix. The core API version is passed to this
+        function, which must return a
+        map[<resource_name>][<attribute_name>][<attribute_property>]
+        specifying the extended resource attribute properties required
+        by that API version.
+
+        Extension can add resources and their attr definitions too.
+        The returned map can be integrated into RESOURCE_ATTRIBUTE_MAP.
+        """
+        return {}
+
     def get_plugin_interface(self):
         """
         Returns an abstract class which defines contract for the plugin.
@@ -206,7 +241,7 @@ class ExtensionController(wsgi.Controller):
         if not ext:
             raise webob.exc.HTTPNotFound(
                 _("Extension with alias %s does not exist") % id)
-        return self._translate(ext)
+        return dict(extension=self._translate(ext))
 
     def delete(self, request, id):
         raise webob.exc.HTTPNotFound()
@@ -217,18 +252,18 @@ class ExtensionController(wsgi.Controller):
 
 class ExtensionMiddleware(wsgi.Middleware):
     """Extensions middleware for WSGI."""
-    def __init__(self, application, config_params,
+    def __init__(self, application,
                  ext_mgr=None):
 
         self.ext_mgr = (ext_mgr
                         or ExtensionManager(
-                        get_extensions_path(config_params)))
+                        get_extensions_path()))
         mapper = routes.Mapper()
 
         # extended resources
         for resource in self.ext_mgr.get_resources():
             LOG.debug(_('Extended resource: %s'),
-                        resource.collection)
+                      resource.collection)
             for action, method in resource.collection_actions.iteritems():
                 path_prefix = ""
                 parent = resource.parent
@@ -266,7 +301,6 @@ class ExtensionMiddleware(wsgi.Middleware):
 
         self._router = routes.middleware.RoutesMiddleware(self._dispatch,
                                                           mapper)
-
         super(ExtensionMiddleware, self).__init__(application)
 
     @classmethod
@@ -339,10 +373,8 @@ class ExtensionMiddleware(wsgi.Middleware):
 def plugin_aware_extension_middleware_factory(global_config, **local_config):
     """Paste factory."""
     def _factory(app):
-        extensions_path = get_extensions_path(global_config)
-        ext_mgr = PluginAwareExtensionManager(extensions_path,
-                                              QuantumManager.get_plugin())
-        return ExtensionMiddleware(app, global_config, ext_mgr=ext_mgr)
+        ext_mgr = PluginAwareExtensionManager.get_instance()
+        return ExtensionMiddleware(app, ext_mgr=ext_mgr)
     return _factory
 
 
@@ -397,6 +429,29 @@ class ExtensionManager(object):
                 pass
         return request_exts
 
+    def extend_resources(self, version, attr_map):
+        """Extend resources with additional resources or attributes.
+
+        :param: attr_map, the existing mapping from resource name to
+        attrs definition.
+
+        After this function, we will extend the attr_map if an extension
+        wants to extend this map.
+        """
+        for ext in self.extensions.itervalues():
+            if not hasattr(ext, 'get_extended_resources'):
+                continue
+            try:
+                extended_attrs = ext.get_extended_resources(version)
+                for resource, resource_attrs in extended_attrs.iteritems():
+                    if attr_map.get(resource, None):
+                        attr_map[resource].update(resource_attrs)
+                    else:
+                        attr_map[resource] = resource_attrs
+            except AttributeError:
+                LOG.exception("Error fetching extended attributes for "
+                              "extension '%s'" % ext.get_name())
+
     def _check_extension(self, extension):
         """Checks for required methods in extension objects."""
         try:
@@ -408,6 +463,12 @@ class ExtensionManager(object):
         except AttributeError as ex:
             LOG.exception(_("Exception loading extension: %s"), unicode(ex))
             return False
+        if hasattr(extension, 'check_env'):
+            try:
+                extension.check_env()
+            except exceptions.InvalidExtenstionEnv as ex:
+                LOG.warn(_("Exception loading extension: %s"), unicode(ex))
+                return False
         return True
 
     def _load_all_extensions(self):
@@ -459,12 +520,14 @@ class ExtensionManager(object):
         LOG.warn(_('Loaded extension: %s'), alias)
 
         if alias in self.extensions:
-            raise exceptions.Error("Found duplicate extension: %s"
-                                         % alias)
+            raise exceptions.Error("Found duplicate extension: %s" %
+                                   alias)
         self.extensions[alias] = ext
 
 
 class PluginAwareExtensionManager(ExtensionManager):
+
+    _instance = None
 
     def __init__(self, path, plugin):
         self.plugin = plugin
@@ -474,7 +537,7 @@ class PluginAwareExtensionManager(ExtensionManager):
         """Checks if plugin supports extension and implements the
         extension contract."""
         extension_is_valid = super(PluginAwareExtensionManager,
-                                self)._check_extension(extension)
+                                   self)._check_extension(extension)
         return (extension_is_valid and
                 self._plugin_supports(extension) and
                 self._plugin_implements_interface(extension))
@@ -484,6 +547,10 @@ class PluginAwareExtensionManager(ExtensionManager):
         supports_extension = (hasattr(self.plugin,
                                       "supported_extension_aliases") and
                               alias in self.plugin.supported_extension_aliases)
+        plugin_provider = cfg.CONF.core_plugin
+        if not supports_extension and plugin_provider in ENABLED_EXTS:
+            supports_extension = (alias in
+                                  ENABLED_EXTS[plugin_provider]['ext_alias'])
         if not supports_extension:
             LOG.warn("extension %s not supported by plugin %s",
                      alias, self.plugin)
@@ -500,6 +567,18 @@ class PluginAwareExtensionManager(ExtensionManager):
                      "plugin interface %s" % (self.plugin,
                                               extension.get_alias()))
         return plugin_has_interface
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            plugin_provider = cfg.CONF.core_plugin
+            if plugin_provider in ENABLED_EXTS:
+                for model in ENABLED_EXTS[plugin_provider]['ext_db_models']:
+                    LOG.debug('loading model %s', model)
+                    model_class = importutils.import_class(model)
+            cls._instance = cls(get_extensions_path(),
+                                QuantumManager.get_plugin())
+        return cls._instance
 
 
 class RequestExtension(object):
@@ -539,9 +618,9 @@ class ResourceExtension(object):
 
 # Returns the extention paths from a config entry and the __path__
 # of quantum.extensions
-def get_extensions_path(config=None):
+def get_extensions_path():
     paths = ':'.join(quantum.extensions.__path__)
-    if config:
-        paths = ':'.join([config.get('api_extensions_path', ''), paths])
+    if cfg.CONF.api_extensions_path:
+        paths = ':'.join([cfg.CONF.api_extensions_path, paths])
 
     return paths

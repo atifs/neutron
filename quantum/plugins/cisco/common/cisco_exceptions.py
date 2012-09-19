@@ -27,7 +27,7 @@ from quantum.common import exceptions
 class NoMoreNics(exceptions.QuantumException):
     """No more dynamic nics are available in the system"""
     message = _("Unable to complete operation. No more dynamic nics are "
-                 "available in the system.")
+                "available in the system.")
 
 
 class PortProfileLimit(exceptions.QuantumException):
@@ -76,14 +76,14 @@ class NetworkVlanBindingAlreadyExists(exceptions.QuantumException):
 
 class PortProfileAlreadyExists(exceptions.QuantumException):
     """Port profile cannot be created since it already exisits"""
-    message = _("PortProfile %(pp_name) for %(tenant_id)s "
+    message = _("PortProfile %(pp_name)s for %(tenant_id)s "
                 "already exists")
 
 
 class PortProfileBindingAlreadyExists(exceptions.QuantumException):
     """Binding cannot be created, since it already exists"""
     message = _("PortProfileBinding for port profile %(pp_id)s to "
-                 "port %(port_id) already exists")
+                "port %(port_id)s already exists")
 
 
 class VlanIDNotFound(exceptions.QuantumException):
@@ -134,47 +134,52 @@ class CredentialAlreadyExists(exceptions.QuantumException):
 
 class NexusPortBindingNotFound(exceptions.QuantumException):
     """NexusPort Binding is not present"""
-    message = _("Nexus Port Binding %(port_id) is not present")
+    message = _("Nexus Port Binding %(port_id)s is not present")
+
+
+class NexusPortBindingAlreadyExists(exceptions.QuantumException):
+    """NexusPort Binding alredy exists"""
+    message = _("Nexus Port Binding %(port_id)s already exists")
 
 
 class UcsmBindingNotFound(exceptions.QuantumException):
     """Ucsm Binding is not present"""
-    message = _("Ucsm Binding with ip %(ucsm_ip) is not present")
+    message = _("Ucsm Binding with ip %(ucsm_ip)s is not present")
 
 
 class UcsmBindingAlreadyExists(exceptions.QuantumException):
     """Ucsm Binding already exists"""
-    message = _("Ucsm Binding with ip %(ucsm_ip) already exists")
+    message = _("Ucsm Binding with ip %(ucsm_ip)s already exists")
 
 
 class DynamicVnicNotFound(exceptions.QuantumException):
     """Ucsm Binding is not present"""
-    message = _("Dyanmic Vnic %(vnic_id) is not present")
+    message = _("Dyanmic Vnic %(vnic_id)s is not present")
 
 
 class DynamicVnicAlreadyExists(exceptions.QuantumException):
     """Ucsm Binding already exists"""
-    message = _("Dynamic Vnic with name %(device_name) already exists")
+    message = _("Dynamic Vnic with name %(device_name)s already exists")
 
 
 class BladeNotFound(exceptions.QuantumException):
     """Blade is not present"""
-    message = _("Blade %(blade_id) is not present")
+    message = _("Blade %(blade_id)s is not present")
 
 
 class BladeAlreadyExists(exceptions.QuantumException):
     """Blade already exists"""
-    message = _("Blade with mgmt_ip %(mgmt_ip) already exists")
+    message = _("Blade with mgmt_ip %(mgmt_ip)s already exists")
 
 
 class PortVnicBindingAlreadyExists(exceptions.QuantumException):
     """PortVnic Binding already exists"""
-    message = _("PortVnic Binding %(port_id) already exists")
+    message = _("PortVnic Binding %(port_id)s already exists")
 
 
 class PortVnicNotFound(exceptions.QuantumException):
     """PortVnic Binding is not present"""
-    message = _("PortVnic Binding %(port_id) is not present")
+    message = _("PortVnic Binding %(port_id)s is not present")
 
 
 class InvalidAttach(exceptions.QuantumException):
@@ -183,3 +188,9 @@ class InvalidAttach(exceptions.QuantumException):
                 "attachment ID with port ID happens implicitly when "
                 "VM is instantiated; attach operation can be "
                 "performed subsequently.")
+
+
+class InvalidDetach(exceptions.QuantumException):
+    message = _("Unable to unplug the attachment %(att_id)s from port "
+                "%(port_id)s for network %(net_id)s. The attachment "
+                "%(att_id)s does not exist.")

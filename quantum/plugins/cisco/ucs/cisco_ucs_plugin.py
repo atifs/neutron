@@ -19,8 +19,7 @@
 
 import logging
 
-from quantum.common import exceptions as exc
-from quantum.common import utils
+from quantum.openstack.common import importutils
 from quantum.plugins.cisco.common import cisco_constants as const
 from quantum.plugins.cisco.common import cisco_credentials as cred
 from quantum.plugins.cisco.common import cisco_exceptions as cexc
@@ -39,7 +38,7 @@ class UCSVICPlugin(L2DevicePluginBase):
     """UCS Device Plugin"""
 
     def __init__(self):
-        self._driver = utils.import_object(conf.UCSM_DRIVER)
+        self._driver = importutils.import_object(conf.UCSM_DRIVER)
         LOG.debug("Loaded driver %s\n" % conf.UCSM_DRIVER)
         # TODO (Sumit) Make the counter per UCSM
         self._port_profile_counter = 0
@@ -253,8 +252,8 @@ class UCSVICPlugin(L2DevicePluginBase):
         return udb.update_portbinding(port_id, vlan_name=new_vlan_name,
                                       vlan_id=conf.DEFAULT_VLAN_ID)
 
-    def create_multiport(self, tenant_id, net_id_list, ports_num, port_id_list,
-                     **kwargs):
+    def create_multiport(self, tenant_id, net_id_list, ports_num,
+                         port_id_list, **kwargs):
         """
         Creates a port on the specified Virtual Network.
         """

@@ -13,15 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import uuid
-
-import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.ext import declarative
-
-
-def str_uuid():
-    return str(uuid.uuid4())
+from sqlalchemy import orm
 
 
 class QuantumBase(object):
@@ -60,7 +53,6 @@ class QuantumBase(object):
 
 
 class QuantumBaseV2(QuantumBase):
-    uuid = sa.Column(sa.String(36), primary_key=True, default=str_uuid)
 
     @declarative.declared_attr
     def __tablename__(cls):

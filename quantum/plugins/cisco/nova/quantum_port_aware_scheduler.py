@@ -24,10 +24,9 @@ Quantum Port Aware Scheduler Implementation
 
 from nova import exception as excp
 from nova import flags
-from nova import log as logging
 from nova.openstack.common import cfg
+from nova.openstack.common import log as logging
 from nova.scheduler import chance
-from nova.scheduler import driver
 from quantumclient import Client
 
 
@@ -44,7 +43,7 @@ quantum_opts = [
     cfg.StrOpt('quantum_default_tenant_id',
                default="default",
                help='Default tenant id when creating quantum networks'),
-    ]
+]
 
 
 FLAGS = flags.FLAGS

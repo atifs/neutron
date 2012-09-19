@@ -18,8 +18,8 @@
 import logging
 import webob.dec
 
-from quantum import wsgi
 from quantum.api.views import versions as versions_view
+from quantum import wsgi
 
 
 LOG = logging.getLogger(__name__)
@@ -36,11 +36,7 @@ class Versions(object):
         """Respond to a request for all Quantum API versions."""
         version_objs = [
             {
-                "id": "v1.0",
-                "status": "DEPRECATED",
-            },
-            {
-                "id": "v1.1",
+                "id": "v2.0",
                 "status": "CURRENT",
             },
             {
@@ -65,8 +61,8 @@ class Versions(object):
         }
 
         content_type = req.best_match_content_type()
-        body = wsgi.Serializer(metadata=metadata). \
-                    serialize(response, content_type)
+        body = (wsgi.Serializer(metadata=metadata).
+                serialize(response, content_type))
 
         response = webob.Response()
         response.content_type = content_type

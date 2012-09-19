@@ -22,8 +22,6 @@ Nexus-OS XML-based configuration snippets
 
 import logging
 
-from quantum.plugins.cisco.common import cisco_constants as const
-
 
 LOG = logging.getLogger(__name__)
 
@@ -31,7 +29,7 @@ LOG = logging.getLogger(__name__)
 # The following are standard strings, messages used to communicate with Nexus,
 EXEC_CONF_SNIPPET = """
       <config xmlns:xc="urn:ietf:params:xml:ns:netconf:base:1.0">
-        <configure xmlns="http://www.cisco.com/nxos:1.0:vlan_mgr_cli">
+        <configure>
           <__XML__MODE__exec_configure>%s
           </__XML__MODE__exec_configure>
         </configure>
@@ -101,7 +99,7 @@ CMD_PORT_TRUNK = """
                     </trunk>
                   </mode>
                 </switchport>
-              </__XML__MODE_if-ethernet-switch>C:  1: Missing docstring
+              </__XML__MODE_if-ethernet-switch>
             </ethernet>
           </interface>
 """
@@ -123,23 +121,21 @@ CMD_NO_SWITCHPORT = """
 
 CMD_NO_VLAN_INT_SNIPPET = """
           <interface>
-            <ethernet>C:  1: Missing docstring
+            <ethernet>
               <interface>%s</interface>
               <__XML__MODE_if-ethernet-switch>
                 <switchport></switchport>
-                <no>
                 <switchport>
                   <trunk>
                     <allowed>
                       <vlan>
-                        <__XML__BLK_Cmd_switchport_trunk_allowed_allow-vlans>
-                          <allow-vlans>%s</allow-vlans>
-                        </__XML__BLK_Cmd_switchport_trunk_allowed_allow-vlans>
+                        <remove>
+                          <vlan>%s</vlan>
+                        </remove>
                       </vlan>
                     </allowed>
                   </trunk>
                 </switchport>
-               </no>
               </__XML__MODE_if-ethernet-switch>
             </ethernet>
           </interface>

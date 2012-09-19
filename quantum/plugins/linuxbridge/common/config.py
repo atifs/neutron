@@ -19,32 +19,40 @@
 
 from quantum.openstack.common import cfg
 
+DEFAULT_VLAN_RANGES = []
+DEFAULT_INTERFACE_MAPPINGS = []
+
 
 vlan_opts = [
-    cfg.IntOpt('vlan_start', default=1000),
-    cfg.IntOpt('vlan_end', default=3000),
+    cfg.StrOpt('tenant_network_type', default='local',
+               help="Network type for tenant networks "
+               "(local, vlan, or none)"),
+    cfg.ListOpt('network_vlan_ranges',
+                default=DEFAULT_VLAN_RANGES,
+                help="List of <physical_network>:<vlan_min>:<vlan_max> "
+                "or <physical_network>"),
 ]
 
 database_opts = [
     cfg.StrOpt('sql_connection', default='sqlite://'),
+    cfg.IntOpt('sql_max_retries', default=-1),
     cfg.IntOpt('reconnect_interval', default=2),
 ]
 
 bridge_opts = [
-    cfg.StrOpt('physical_interface', default='eth1'),
+    cfg.ListOpt('physical_interface_mappings',
+                default=DEFAULT_INTERFACE_MAPPINGS,
+                help="List of <physical_network>:<physical_interface>"),
 ]
 
 agent_opts = [
     cfg.IntOpt('polling_interval', default=2),
     cfg.StrOpt('root_helper', default='sudo'),
+    cfg.BoolOpt('rpc', default=True),
 ]
 
 
-def parse(config_file):
-    conf = cfg.ConfigOpts(default_config_files=[config_file])
-    conf(args=[])
-    conf.register_opts(vlan_opts, "VLANS")
-    conf.register_opts(database_opts, "DATABASE")
-    conf.register_opts(bridge_opts, "BRIDGE")
-    conf.register_opts(agent_opts, "AGENT")
-    return conf
+cfg.CONF.register_opts(vlan_opts, "VLANS")
+cfg.CONF.register_opts(database_opts, "DATABASE")
+cfg.CONF.register_opts(bridge_opts, "LINUX_BRIDGE")
+cfg.CONF.register_opts(agent_opts, "AGENT")

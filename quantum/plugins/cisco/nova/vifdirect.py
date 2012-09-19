@@ -21,8 +21,8 @@
 
 from nova import exception as excp
 from nova import flags
-from nova import log as logging
 from nova.openstack.common import cfg
+from nova.openstack.common import log as logging
 from nova.virt.vif import VIFDriver
 from quantumclient import Client
 
@@ -39,7 +39,7 @@ quantum_opts = [
     cfg.StrOpt('quantum_default_tenant_id',
                default="default",
                help='Default tenant id when creating quantum networks'),
-    ]
+]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(quantum_opts)
