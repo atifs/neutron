@@ -12,6 +12,8 @@ import uuid
 import json
 from netaddr import IPAddress
 
+from vnc_api2 import *
+
 _DEFAULT_HEADERS = {
                     'Content-type': 'application/json; charset="UTF-8"',
                    }
@@ -24,6 +26,10 @@ class DBInterface(object):
     def __init__(self, api_srvr_ip, api_srvr_port):
         self._api_srvr_ip = api_srvr_ip
 	self._api_srvr_port = api_srvr_port
+
+        # TODO remove hardcode
+        self._vnc_lib = VncApi('user1', 'password1', 'default-tenant',
+                               api_srvr_ip, api_srvr_port, '/')
 
         # TODO move this to db_cache class
         self._db_cache = {}
@@ -90,6 +96,73 @@ class DBInterface(object):
 	rsp = self._relay_request(request)
 	return rsp
 
+    def network_create(self, project_id, name):
+        netgrp_obj = NetworkGroup(project_id)
+        net_obj = VirtualNetwork(name, netgrp_obj)
+        net_uuid = self._vnc_lib.virtual_network_create(net_obj)
+
+        return net_uuid
+    #end network_create
+
+    def _network_read(self, net_uuid):
+        net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
+        return net_obj
+    #end _network_read
+
+    def network_read(self, net_uuid):
+        net_obj = self._network_read(net_uuid)
+        ret_dict = {}
+        ret_dict['id'] = net_obj.uuid
+        ret_dict['name'] = net_obj.name
+        ret_dict['tenant_id'] = net_obj.parent_name
+
+        return ret_dict
+    #end network_read
+
+    def network_list(self, filters = None):
+        project_obj = None
+        ret_list = []
+        if filters and filters.has_key('tenant_id'):
+            # TODO support more than one project
+            project_id = filters['tenant_id'][0]
+            project_obj = NetworkGroup(project_id)
+
+        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+        resp_dict = json.loads(resp_str)
+
+        for net_info in resp_dict['virtual-networks']:
+            if (filters and filters.has_key('id') and 
+                not net_info['uuid'] in filters['id']):
+                continue
+            r_info = {}
+            r_info['id'] = net_info['uuid']
+            r_info['name'] = net_info['name']
+            ret_list.append(r_info)
+
+        return ret_list
+    #end network_list
+
+    def subnet_create(self, subnet):
+        net_id = subnet['subnet']['network_id']
+        net_obj = self._vnc_lib.virtual_network_read(id = net_id)
+
+        project_obj = NetworkGroup(subnet['subnet']['tenant_id'])
+        netipam_obj = NetworkIpam(network_group = project_obj)
+
+        cidr = subnet['subnet']['cidr'].split('/')
+        pfx = cidr[0]
+        pfx_len = int(cidr[1])
+
+        # TODO if support for multiple ipams refs is added,
+        # below needs to change
+        vnsn_data = net_obj.get_network_ipam_refs()[0][1]
+        vnsn_data.subnet.append(SubnetType(pfx, pfx_len))
+        net_obj.set_network_ipam(netipam_obj, vnsn_data)
+
+        resp_str = self._vnc_lib.virtual_network_update(net_obj)
+        return resp_str
+    #end subnet_create
+
     def subnets_set(self, request):
         rsp = self._relay_request(request)
 	return rsp
@@ -98,17 +171,31 @@ class DBInterface(object):
         rsp = self._relay_request(request)
 	return rsp
 
-    def subnets_get_quantum(self, subnet_ids):
+    def subnets_read(self, filters = None):
         ret_subnets = []
-        for subnet_id in subnet_ids:
-            (vn_id, ip_addr) = self._db_cache['subnets'][subnet_id]
-            # TODO query api-server to find ipam info for vn,ip pair
-            subnet = {}
-            subnet['cidr'] = ip_addr
-            subnet['gateway_ip'] = str((IPAddress(ip_addr) &
-                                        IPAddress('255.255.255.0')) |
-                                       IPAddress('0.0.0.254'))
-            ret_subnets.append(subnet)
+
+        networks = self.network_list(filters)
+        for network in networks:
+            net_obj = self._network_read(network['id'])
+
+            for ipam in net_obj.get_network_ipam_refs():
+                subnets = ipam[1].get_subnet()
+                for subnet in subnets:
+                    sn_info = {}
+                    sn_info['cidr'] = '%s/%s' %(subnet.get_ip_prefix(),
+                                                subnet.get_ip_prefix_len())
+                    sn_info['network_id'] = net_obj.uuid
+                    ret_subnets.append(sn_info)
+
+        #for subnet_id in subnet_ids:
+        #    (vn_id, ip_addr) = self._db_cache['subnets'][subnet_id]
+        #    # TODO query api-server to find ipam info for vn,ip pair
+        #    subnet = {}
+        #    subnet['cidr'] = ip_addr
+        #    subnet['gateway_ip'] = str((IPAddress(ip_addr) &
+        #                                IPAddress('255.255.255.0')) |
+        #                               IPAddress('0.0.0.254'))
+        #    ret_subnets.append(subnet)
 
         return ret_subnets
         
@@ -172,7 +259,6 @@ class DBInterface(object):
                                 %(rsp.status_code, rsp.text))
       
         # Create port in oper-db
-        #import pdb; pdb.set_trace()
         rsp = self._port_create(tenant_id, vn_id, instance_id)
         if rsp.status_code == 200:
             rsp_port = json.loads(rsp.text)['port']
@@ -186,7 +272,6 @@ class DBInterface(object):
             new_port['id'] = rsp_port['port-id']
             new_port['mac_address'] = rsp_port['port-macs'][0]
             # TODO is this enough for subnet_id?
-            import pdb; pdb.set_trace()
             fixed_ips =  \
                 [{'ip_address': '%s' %(ipa),
                  'subnet_id': '%s %s' %(port_id, ipa)} for ipa in port_ips]
@@ -240,7 +325,6 @@ class DBInterface(object):
                         port_set = instance['port_ids']
                         for port_id in port_set:
                             port = self._db_cache['ports'][port_id]
-                            import pdb; pdb.set_trace()
                             if detailed:
                                 ret_ports.append(port)
                             else:

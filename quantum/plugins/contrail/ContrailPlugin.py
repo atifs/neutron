@@ -10,7 +10,6 @@
 import logging
 import code
 
-from quantum.api.api_common import OperationalStatus
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
 from quantum.db import api as db
@@ -39,23 +38,14 @@ class ContrailPlugin(object):
             """
             .. attention:: TODO pick vals below from config
             """
-            cls._cfgdb = ctdb.config_db.DBInterface('127.0.0.1', '8081')
+            cls._cfgdb = ctdb.config_db.DBInterface('127.0.0.1', '8082')
             # TOD Treat the 2 DBs as logically separate? (same backend for now)
             cls._operdb = cls._cfgdb
 
     def __init__(self):
-        db.configure_db({'sql_connection': 'sqlite:///:memory:'})
+        #db.configure_db({'sql_connection': 'sqlite:///:memory:'})
 	ContrailPlugin._connect_to_db()
-
-
-    def _get_network(self, tenant_id, network_id):
-
-        db.validate_network_ownership(tenant_id, network_id)
-        try:
-            network = db.network_get(network_id)
-        except:
-            raise exc.NetworkNotFound(net_id=network_id)
-        return network
+        self._cfgdb = ContrailPlugin._cfgdb
 
     def _get_port(self, tenant_id, network_id, port_id):
 
@@ -122,23 +112,21 @@ class ContrailPlugin(object):
             nets.append(net_item)
         return nets
 
-    # V2 api
-    def get_networks(self, context, filters=None, show=None, verbose=None):
-        #self._log("get_networks", context, filters=filters, show=show,
-        #          verbose=verbose)
-        if not filters is None:
-            LOG.debug("filtering options were passed to the plugin"
-                      "but the plugin does not support them")
+    def get_network(self, context, id, fields=None):
+        LOG.debug("Plugin.get_network() called")
 
-        # TODO contact cfg api server and implement this
-        #    net_item = {'net-id': str(net.uuid),
-        #                'net-name': net.name,
-        #                'net-op-status': net.op_status}
-        #    nets.append(net_item)
-        #return nets
-        return [{'id': "ct:vn:infra:vpc1:vn1",
-                 'name': "vn1",
-                 'tenant_id': 'infra'}]
+        net_info = self._cfgdb.network_read(id)
+
+        return net_info
+    #end get_network 
+
+    def get_networks(self, context, filters=None, fields=None):
+        LOG.debug("Plugin.get_networks() called")
+
+        nets_info = self._cfgdb.network_list(filters)
+
+        return nets_info 
+    #end get_networks
 
     def get_network_details(self, tenant_id, net_id):
         """
@@ -162,21 +150,11 @@ class ContrailPlugin(object):
         LOG.debug("Plugin.create_network() called")
 
         net_name = network['network']['name']
-        tenant_id = context.to_dict()['tenant_id']
-        if tenant_id == None:
-	   """
-	   .. attention:: TODO remove after quantum client is apiv2
-	   """
-           tenant_id = 'tenant1'
+        # tenant is project (not domain) right now
+        project_id = network['network']['tenant_id']
+        net_id = self._cfgdb.network_create(project_id, net_name)
 
-        net_id = self._cfgdb.network_create(tenant_id, net_name)
-
-        new_net = db.network_create(tenant_id, net_name)
-        # Put operational status UP
-        db.network_update(new_net.uuid, net_name,
-                          op_status=OperationalStatus.UP)
-        # Return uuid for newly created network as net-id.
-        return {'net-id': new_net.uuid}
+        return {'id': net_id}
 
     def delete_network(self, tenant_id, net_id):
         """
@@ -209,7 +187,6 @@ class ContrailPlugin(object):
         specified Virtual Network.
         """
         LOG.debug("Plugin.get_all_ports() called")
-        #import pdb; pdb.set_trace()
 
         # TODO validate network ownershiop of net_id by tenant_id
         ports = self._operdb.port_list(tenant_id_filt = ['infra'],
@@ -237,7 +214,6 @@ class ContrailPlugin(object):
         Creates a port on the specified Virtual Network.
         """
         LOG.debug("Plugin.create_port() called")
-        #import pdb; pdb.set_trace()
         port = kwargs['port']['port']
         
         # TODO verify net_id
@@ -332,16 +308,24 @@ class ContrailPlugin(object):
         subnets = self._cfgdb.subnets_get_vnc(request)
 	return subnets
 
-    def get_subnets(self, context, filters = None, verbose = None, show = None):
+    def create_subnet(self, context, subnet):
+        subnet_id = self._cfgdb.subnet_create(subnet)
+        
+        return {'id': subnet_id}
+    #end create_subnet
+
+    def get_subnets(self, context, filters = None, fields = None):
         """
         Called from Quantum API -> get_<resource>
         """
         LOG.debug("Plugin.get_subnets() called")
+
+        # tenant is project (not domain) right now
         subnets = []
-        import pdb; pdb.set_trace()
-        subnets = self._cfgdb.subnets_get_quantum(filters['id'])
+        subnets = self._cfgdb.subnets_read(filters)
 
 	return subnets
+    #end get_subnets
 
     def create_security_group(self, request):
         """
