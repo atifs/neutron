@@ -153,11 +153,16 @@ class DBInterface(object):
         pfx = cidr[0]
         pfx_len = int(cidr[1])
 
-        # TODO if support for multiple ipams refs is added,
-        # below needs to change
-        vnsn_data = net_obj.get_network_ipam_refs()[0][1]
-        vnsn_data.subnet.append(SubnetType(pfx, pfx_len))
-        net_obj.set_network_ipam(netipam_obj, vnsn_data)
+        net_ipam_refs = net_obj.get_network_ipam_refs()
+        if not net_ipam_refs:
+            vnsn_data = VnSubnetsType([SubnetType(pfx, pfx_len)])
+            net_obj.add_network_ipam(netipam_obj, vnsn_data)
+        else: # virtual-network already linked to ipam
+            # TODO if support for multiple ipams refs is added,
+            # below needs to change
+            vnsn_data = net_ipam_refs[0][1]
+            vnsn_data.subnet.append(SubnetType(pfx, pfx_len))
+            net_obj.set_network_ipam(netipam_obj, vnsn_data)
 
         resp_str = self._vnc_lib.virtual_network_update(net_obj)
         return resp_str

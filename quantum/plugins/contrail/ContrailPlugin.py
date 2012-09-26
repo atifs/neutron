@@ -8,7 +8,7 @@
 """
 
 import logging
-import code
+import ConfigParser
 
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
@@ -18,6 +18,17 @@ import ctdb.config_db
 
 LOG = logging.getLogger(__name__)
 
+def _read_cfg(cfg_parser, section, option, default):
+        try:
+            val = cfg_parser.get(section, option)
+        except (AttributeError,
+                ConfigParser.NoOptionError,
+                ConfigParser.NoSectionError):
+            val = default
+
+        return val
+#end _read_cfg
+
 class ContrailPlugin(object):
     """
     .. attention::  remove db. ref and replace ctdb. with db.
@@ -26,6 +37,12 @@ class ContrailPlugin(object):
     supported_extension_aliases = ["vpc", "vn", "security_groups"]
     _cfgdb = None
     _operdb = None
+    _args = None
+
+    @classmethod
+    def _parse_class_args(cls, cfg_parser):
+        pass
+    #end _parse_class_args
 
     @classmethod
     def _connect_to_db(cls):
@@ -43,8 +60,10 @@ class ContrailPlugin(object):
             cls._operdb = cls._cfgdb
 
     def __init__(self):
-        #db.configure_db({'sql_connection': 'sqlite:///:memory:'})
-	ContrailPlugin._connect_to_db()
+        cfg_parser = ConfigParser.ConfigParser()
+        ContrailPlugin._parse_class_args(cfg_parser)
+
+        ContrailPlugin._connect_to_db()
         self._cfgdb = ContrailPlugin._cfgdb
 
     def _get_port(self, tenant_id, network_id, port_id):
