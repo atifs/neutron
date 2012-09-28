@@ -12,7 +12,7 @@ import uuid
 import json
 from netaddr import IPAddress
 
-from vnc_api2 import *
+from vnc_api import *
 
 _DEFAULT_HEADERS = {
                     'Content-type': 'application/json; charset="UTF-8"',
@@ -122,25 +122,56 @@ class DBInterface(object):
     def network_list(self, filters = None):
         project_obj = None
         ret_list = []
+
+        # collect phase
+        all_nets = [] # all n/ws in all projects
         if filters and filters.has_key('tenant_id'):
-            # TODO support more than one project
-            project_id = filters['tenant_id'][0]
-            project_obj = NetworkGroup(project_id)
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_obj = NetworkGroup(p_id)
+                project_nets = self._network_list_project(project_obj)
+                all_nets.append(project_nets)
+        else: # no filters
+            project_nets = self._network_list_project(project_obj)
+            all_nets.append(project_nets)
 
-        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
-        resp_dict = json.loads(resp_str)
+        # prune phase
+        for project_nets in all_nets:
+            for net_info in project_nets['virtual-networks']:
+                if (filters and filters.has_key('id') and 
+                    not net_info['uuid'] in filters['id']):
+                    continue
 
-        for net_info in resp_dict['virtual-networks']:
-            if (filters and filters.has_key('id') and 
-                not net_info['uuid'] in filters['id']):
-                continue
-            r_info = {}
-            r_info['id'] = net_info['uuid']
-            r_info['name'] = net_info['name']
-            ret_list.append(r_info)
+                r_info = {}
+                r_info['id'] = net_info['uuid']
+                r_info['name'] = net_info['name']
+                ret_list.append(r_info)
 
         return ret_list
     #end network_list
+
+    #def network_list(self, filters = None):
+    #    project_obj = None
+    #    ret_list = []
+    #    if filters and filters.has_key('tenant_id'):
+    #        # TODO support more than one project
+    #        project_id = filters['tenant_id'][0]
+    #        project_obj = NetworkGroup(project_id)
+
+    #    resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+    #    resp_dict = json.loads(resp_str)
+
+    #    for net_info in resp_dict['virtual-networks']:
+    #        if (filters and filters.has_key('id') and 
+    #            not net_info['uuid'] in filters['id']):
+    #            continue
+    #        r_info = {}
+    #        r_info['id'] = net_info['uuid']
+    #        r_info['name'] = net_info['name']
+    #        ret_list.append(r_info)
+
+    #    return ret_list
+    ##end network_list
 
     def subnet_create(self, subnet):
         net_id = subnet['subnet']['network_id']
@@ -294,45 +325,39 @@ class DBInterface(object):
 
         return new_port
 
-    def port_list(self, tenant_id_filt, vpc_id_filt, vn_id_filt,
-                  instance_id_filt, detailed = False):
-        # TODO query api-server and return
-        # TODO optimize below if needed
+    def port_list(self, filters = None, detailed = False):
+        project_obj = None
         ret_ports = []
-        if tenant_id_filt == None:
-            tenant_set = set(self._db_cache['tenants'].keys())
-        else:
-            tenant_set = set(tenant_id_filt)
+        if not (filters and filters.has_key('tenant_id'))
+            # TODO implement richer filters
+            raise Exception("port_list unimplemented with filters: " \
+                             + str(filters))
 
-        for tenant_id in tenant_set:
-            tenant = self._db_cache['tenants'][tenant_id]
-            if vpc_id_filt == None:
-                vpc_set = tenant['vpc_ids']
-            else:
-                vpc_set = set(vpc_id_filt) & tenant['vpc_ids']
+        if not filters.has_key('device_id'):
+            return self._port_list_project(filters['tenant_id'])
 
-            for vpc_id in vpc_set:
-                vpc = self._db_cache['vpcs'][vpc_id]
-                if vn_id_filt == None:
-                    vn_set = vpc['vn_ids']
-                else:
-                    vn_set = set(vn_id_filt) & vpc['vn_ids']
-
-                for vn_id in vn_set:
-                    vn = self._db_cache['vns'][vn_id]
-                    if instance_id_filt == None:
-                       instance_set = vn['instance_ids']
-                    else:
-                       instance_set = set(instance_id_filt) & vn['instance_ids']
-
-                    for instance_id in instance_set:
-                        instance = self._db_cache['instances'][instance_id]
-                        port_set = instance['port_ids']
-                        for port_id in port_set:
-                            port = self._db_cache['ports'][port_id]
-                            if detailed:
-                                ret_ports.append(port)
-                            else:
-                                ret_ports.append(port['id'])
+        virtual_machine_ids = filters['device_id']
+        for vm_id in virtual_machine_ids:
+            try:
+                vm_obj = self._vnc_lib.virtual_machine_read(id = vm_id)
+            except NoIdError:
+                continue
+            resp_str = self._vnc_lib.virtual_machine_ports_list(vm_obj)
+            resp_dict = json.loads(resp_str)
+            ret_ports.append(resp_dict)
 
         return ret_ports
+
+    # find networks on a given project
+    def _network_list_project(self, project_id):
+        project_obj = NetworkGroup(project_id)
+        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict
+    #end _network_list_project
+
+    def _port_list_project(self, project_id)
+        project_obj = NetworkGroup(
+        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+    #end _port_list_project

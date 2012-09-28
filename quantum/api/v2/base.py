@@ -513,8 +513,9 @@ class Controller(object):
             request.context,
             resource_item['network_id'])
         # do not perform the check on shared networks
-        if network.get('shared'):
-            return
+        # TODO ajay enable this if network.get('shared'):
+        #    return
+        return
 
         network_owner = network['tenant_id']
 

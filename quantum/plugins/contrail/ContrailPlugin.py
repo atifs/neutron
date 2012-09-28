@@ -200,18 +200,15 @@ class ContrailPlugin(object):
         net = db.network_update(net_id, tenant_id, **kwargs)
         return net
 
-    def get_ports(self, context, filters=None, show=None, verbose=None):
+    def get_ports(self, context, filters=None, fields = None):
         """
         Retrieves all port identifiers belonging to the
         specified Virtual Network.
         """
         LOG.debug("Plugin.get_all_ports() called")
 
-        # TODO validate network ownershiop of net_id by tenant_id
-        ports = self._operdb.port_list(tenant_id_filt = ['infra'],
-                                       vpc_id_filt = None,
-                                       vn_id_filt = None,
-                                       instance_id_filt = filters['device_id'],
+        # TODO validate network ownership of net_id by tenant_id
+        ports = self._operdb.port_list(filters, 
                                        detailed = True)
         return ports
 
