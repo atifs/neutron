@@ -66,19 +66,6 @@ class ContrailPlugin(object):
         ContrailPlugin._connect_to_db()
         self._cfgdb = ContrailPlugin._cfgdb
 
-    def _get_port(self, tenant_id, network_id, port_id):
-
-        db.validate_port_ownership(tenant_id, network_id, port_id)
-        net = self._get_network(tenant_id, network_id)
-        try:
-            port = db.port_get(port_id, network_id)
-        except:
-            raise exc.PortNotFound(net_id=network_id, port_id=port_id)
-        # Port must exist and belong to the appropriate network.
-        if port['network_id'] != net['uuid']:
-            raise exc.PortNotFound(net_id=network_id, port_id=port_id)
-        return port
-
     def _validate_port_state(self, port_state):
         if port_state.upper() not in ('ACTIVE', 'DOWN'):
             raise exc.StateInvalid(port_state=port_state)
@@ -271,6 +258,10 @@ class ContrailPlugin(object):
         d = {}
         d["port-id"] = str(port.uuid)
         return d
+
+    def get_port(self, context, id, fields = None):
+        import pdb; pdb.set_trace()
+    #end get_port
 
     def plug_interface(self, tenant_id, net_id, port_id, remote_interface_id):
         """

@@ -101,8 +101,10 @@ class DBInterface(object):
         project_obj = NetworkGroup(project_id)
         # TODO remove below once api-server can read and create projects
         # from keystone on startup
-        id = self._vnc_lib.fq_name_to_id(project_obj.get_fq_name())
-        if not id: # project doesn't exist, create it
+        try:
+            id = self._vnc_lib.fq_name_to_id(project_obj.get_fq_name())
+        except NoIdError:
+            # project doesn't exist, create it
             self._vnc_lib.network_group_create(project_obj)
 
         net_obj = VirtualNetwork(name, project_obj)
@@ -127,6 +129,7 @@ class DBInterface(object):
         return ret_dict
     #end network_read
 
+    # TODO request based on filter contents
     def network_list(self, filters = None):
         ret_list = []
 
@@ -147,9 +150,18 @@ class DBInterface(object):
         for project_nets in all_nets:
             for net_info in project_nets:
                 # TODO implement same for name specified in filter
-                if (filters and filters.has_key('id') and 
-                    not net_info['uuid'] in filters['id']):
-                    continue
+                if (filters and filters.has_key('id')):
+                    # if net_info not in requested networks, ignore
+                    if not net_info['uuid'] in filters['id']:
+                        continue
+                    else: # net_info present in filters
+                        if filters.has_key('shared'):
+                            net_idx = filters['id'].index(net_info['uuid'])
+                            shared = filters['shared'][net_idx]
+                            # if net_info in requested networks but request is
+                            # for shared network, ignore
+                            if shared:
+                                continue
 
                 net_dict = self.network_read(net_info['uuid'])
                 r_info = {}
@@ -300,14 +312,16 @@ class DBInterface(object):
 
         server_name = "server-%s" %(server_id)
         server_obj = VirtualRouterSwitch(server_name)
-        id = self._vnc_lib.fq_name_to_id(server_obj.get_fq_name())
-        if not id: # vnsw/server doesn't exist, create it
+        try:
+            id = self._vnc_lib.fq_name_to_id(server_obj.get_fq_name())
+        except NoIdError: # vnsw/server doesn't exist, create it
             self._vnc_lib.virtual_router_switch_create(server_obj)
 
         instance_name = instance_id
         instance_obj = VirtualMachine(instance_name)
-        id = self._vnc_lib.fq_name_to_id(instance_obj.get_fq_name())
-        if not id: # instance doesn't exist, create it
+        try:
+            id = self._vnc_lib.fq_name_to_id(instance_obj.get_fq_name())
+        except NoIdError: # instance doesn't exist, create it
             self._vnc_lib.virtual_machine_create(instance_obj)
 
         net_obj = self._network_read(net_id)
