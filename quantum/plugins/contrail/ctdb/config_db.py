@@ -29,7 +29,7 @@ class DBInterface(object):
 	self._api_srvr_port = api_srvr_port
 
         # TODO remove hardcode
-        self._vnc_lib = VncApi('user1', 'password1', 'default-tenant',
+        self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
                                api_srvr_ip, api_srvr_port, '/')
 
         # TODO move this to db_cache class
@@ -98,14 +98,14 @@ class DBInterface(object):
 	return rsp
 
     def network_create(self, project_id, name):
-        project_obj = NetworkGroup(project_id)
+        project_obj = Project(project_id)
         # TODO remove below once api-server can read and create projects
         # from keystone on startup
         try:
             id = self._vnc_lib.fq_name_to_id(project_obj.get_fq_name())
         except NoIdError:
             # project doesn't exist, create it
-            self._vnc_lib.network_group_create(project_obj)
+            self._vnc_lib.project_create(project_obj)
 
         net_obj = VirtualNetwork(name, project_obj)
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
@@ -180,7 +180,7 @@ class DBInterface(object):
     #    if filters and filters.has_key('tenant_id'):
     #        # TODO support more than one project
     #        project_id = filters['tenant_id'][0]
-    #        project_obj = NetworkGroup(project_id)
+    #        project_obj = Project(project_id)
 
     #    resp_str = self._vnc_lib.virtual_networks_list(project_obj)
     #    resp_dict = json.loads(resp_str)
@@ -201,8 +201,8 @@ class DBInterface(object):
         net_id = subnet['subnet']['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        project_obj = NetworkGroup(subnet['subnet']['tenant_id'])
-        netipam_obj = NetworkIpam(network_group = project_obj)
+        project_obj = Project(subnet['subnet']['tenant_id'])
+        netipam_obj = NetworkIpam(project = project_obj)
 
         cidr = subnet['subnet']['cidr'].split('/')
         pfx = cidr[0]
@@ -311,11 +311,11 @@ class DBInterface(object):
         server_id = port['compute_node_id']
 
         server_name = "server-%s" %(server_id)
-        server_obj = VirtualRouterSwitch(server_name)
+        server_obj = VirtualRouter(server_name)
         try:
             id = self._vnc_lib.fq_name_to_id(server_obj.get_fq_name())
         except NoIdError: # vnsw/server doesn't exist, create it
-            self._vnc_lib.virtual_router_switch_create(server_obj)
+            self._vnc_lib.virtual_router_create(server_obj)
 
         instance_name = instance_id
         instance_obj = VirtualMachine(instance_name)
@@ -328,28 +328,28 @@ class DBInterface(object):
 
         # initialize port object
         port_name = str(uuid.uuid4())
-        port_obj = VirtualMachinePort(port_name, instance_obj)
+        port_obj = VirtualMachineInterface(port_name, instance_obj)
         port_obj.set_virtual_network(net_obj)
 
         # initialize ip object
         ip_name = str(uuid.uuid4())
         ip_obj = InstanceIp(name = ip_name)
-        ip_obj.set_virtual_machine_port(port_obj)
+        ip_obj.set_virtual_machine_interface(port_obj)
         ip_obj.set_virtual_network(net_obj)
 
         # create the objects
-        port_id = self._vnc_lib.virtual_machine_port_create(port_obj)
+        port_id = self._vnc_lib.virtual_machine_interface_create(port_obj)
         self._vnc_lib.instance_ip_create(ip_obj)
 
         ip_addr = ip_obj.get_instance_ip_address()
         fixed_ips =  [{'ip_address': '%s' %(ip_addr), 'subnet_id': net_id}]
 
         # TODO below reads back default parent name, fix it
-        port_obj = self._vnc_lib.virtual_machine_port_read(id = port_id)
+        port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
         ret_port['id'] = port_id
         # TODO RHS below may need fixing
         ret_port['mac_address'] = \
-                port_obj.get_virtual_machine_port_mac_addresses().mac_address[0]
+                port_obj.get_mac_addresses().mac_address[0]
         ret_port['fixed_ips'] = fixed_ips
 
         return ret_port
@@ -417,7 +417,7 @@ class DBInterface(object):
                 vm_obj = self._vnc_lib.virtual_machine_read(id = vm_id)
             except NoIdError:
                 continue
-            resp_str = self._vnc_lib.virtual_machine_ports_list(vm_obj)
+            resp_str = self._vnc_lib.virtual_machine_interfaces_list(vm_obj)
             resp_dict = json.loads(resp_str)
             ret_ports.extend(resp_dict['virtual-machine-ports'])
 
@@ -426,10 +426,10 @@ class DBInterface(object):
             import pdb; pdb.set_trace()
             port_id = port_info['uuid']
             port_info['id'] = port_id
-            port_obj = self._vnc_lib.virtual_machine_port_read(id = port_id)
+            port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
             # TODO fix RHS
             port_info['mac_address'] = \
-                port_obj.get_virtual_machine_port_mac_addresses().mac_address[0]
+                port_obj.get_mac_addresses().mac_address[0]
 
             net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
             net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
@@ -455,8 +455,8 @@ class DBInterface(object):
     # find projects on a given domain
     def _project_list_domain(self, domain_id):
         # TODO resolve domain_id vs domain_name
-        domain_obj = Tenant(domain_id)
-        resp_str = self._vnc_lib.network_groups_list(domain_obj)
+        domain_obj = Domain(domain_id)
+        resp_str = self._vnc_lib.projects_list(domain_obj)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-groups']
@@ -465,7 +465,7 @@ class DBInterface(object):
     # find networks on a given project
     def _network_list_project(self, project_id):
         # TODO resolve project_id vs project_name
-        project_obj = NetworkGroup(project_id)
+        project_obj = Project(project_id)
         resp_str = self._vnc_lib.virtual_networks_list(project_obj)
         resp_dict = json.loads(resp_str)
 
@@ -477,10 +477,10 @@ class DBInterface(object):
         project_nets = self._network_list_project(project_id)
         for net in project_nets:
             net_obj = self._vnc_lib.virtual_network_read(id = net['uuid'])
-            for port_back_ref in net_obj.get_virtual_machine_port_back_refs():
+            for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
                 port_fq_name = port_back_ref['to']
                 port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
-                port_obj = self._vnc_lib.virtual_machine_port_read(id = port_id)
+                port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
                 ret_info = {}
                 ret_info['id'] = port_obj.uuid
                 ret_list.append(ret_info)
