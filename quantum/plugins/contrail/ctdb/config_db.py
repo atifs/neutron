@@ -166,7 +166,6 @@ class DBInterface(object):
                 net_dict = self.network_read(net_info['uuid'])
                 r_info = {}
                 r_info['id'] = net_info['uuid']
-                import pdb; pdb.set_trace()
                 r_info['tenant_id'] = net_dict['tenant_id']
                 r_info['name'] = net_info['name']
                 ret_list.append(r_info)
@@ -349,7 +348,7 @@ class DBInterface(object):
         ret_port['id'] = port_id
         # TODO RHS below may need fixing
         ret_port['mac_address'] = \
-                port_obj.get_mac_addresses().mac_address[0]
+           port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
         ret_port['fixed_ips'] = fixed_ips
 
         return ret_port
@@ -419,17 +418,16 @@ class DBInterface(object):
                 continue
             resp_str = self._vnc_lib.virtual_machine_interfaces_list(vm_obj)
             resp_dict = json.loads(resp_str)
-            ret_ports.extend(resp_dict['virtual-machine-ports'])
+            ret_ports.extend(resp_dict['virtual-machine-interfaces'])
 
         # grab/set additional details for the list of ports
         for port_info in ret_ports:
-            import pdb; pdb.set_trace()
             port_id = port_info['uuid']
             port_info['id'] = port_id
             port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
             # TODO fix RHS
             port_info['mac_address'] = \
-                port_obj.get_mac_addresses().mac_address[0]
+                port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
 
             net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
             net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
@@ -441,7 +439,7 @@ class DBInterface(object):
                 # ip_id == ip_fq_name could have been assumed
                 ip_id = self._vnc_lib.fq_name_to_id(ip_fq_name)
                 ip_obj = self._vnc_lib.instance_ip_read(id = ip_id)
-                ip_addr = ip_obj.get_instance_ip_address().get_ip_address()
+                ip_addr = ip_obj.get_instance_ip_address()
 
                 ip_info = {}
                 ip_info['ip_address'] = ip_addr
@@ -459,7 +457,7 @@ class DBInterface(object):
         resp_str = self._vnc_lib.projects_list(domain_obj)
         resp_dict = json.loads(resp_str)
 
-        return resp_dict['network-groups']
+        return resp_dict['projects']
     #end _project_list_domain
 
     # find networks on a given project
