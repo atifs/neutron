@@ -11,8 +11,9 @@ import re
 import uuid
 import json
 import uuid
-from netaddr import IPAddress
+from netaddr import IPNetwork
 
+from quantum.common import constants
 from vnc_api import *
 
 _DEFAULT_HEADERS = {
@@ -40,7 +41,9 @@ class DBInterface(object):
         self._db_cache['instances'] = {}
         self._db_cache['ports'] = {}
         self._db_cache['subnets'] = {}
+    #end __init__
 
+    # Helper routines
     def _request_api_server(self, url, method, data = None, headers = None):
         if method == 'GET':
 	    return requests.get(url)
@@ -48,6 +51,7 @@ class DBInterface(object):
             return requests.post(url, data = data, headers = headers)
         if method == 'DELETE':
 	    return requests.delete(url)
+    #end _request_api_server
 
     def _relay_request(self, request):
         """
@@ -61,43 +65,165 @@ class DBInterface(object):
         return self._request_api_server(
                         url, request.environ['REQUEST_METHOD'], request.body,
                         {'Content-type': request.environ['CONTENT_TYPE']})
+    #end _relay_request
 
-    def vpc_create(self, request):
-	rsp = self._relay_request(request)
-        if rsp.status_code == 200:
-            tenant = self._db_cache['tenants']['infra']
-            vpc_id = json.loads(rsp.text)['vpc']['vpc-id']
-            self._db_cache['vpcs'][vpc_id] = {'vn_ids': set([])}
-            tenant['vpc_ids'].add(vpc_id)
-        return rsp
+    # find projects on a given domain
+    def _project_list_domain(self, domain_id):
+        # TODO resolve domain_id vs domain_name
+        domain_obj = Domain(domain_id)
+        resp_str = self._vnc_lib.projects_list(domain_obj)
+        resp_dict = json.loads(resp_str)
 
-    def vpc_get(self, request):
-	rsp = self._relay_request(request)
-	return rsp
+        return resp_dict['projects']
+    #end _project_list_domain
 
-    def vpc_delete(self, request):
-	rsp = self._relay_request(request)
-	return rsp
+    # find network ids on a given project
+    def _network_list_project(self, project_id):
+        # TODO resolve project_id vs project_name
+        project_obj = Project(project_id)
+        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+        resp_dict = json.loads(resp_str)
 
-    def vn_create(self, request):
-	rsp = self._relay_request(request)
-        if rsp.status_code == 200:
-            vpc_id = json.loads(request.body)['vn']['vn_vpc_id']
-            vpc = self._db_cache['vpcs'][vpc_id]
-            vn_id = json.loads(rsp.text)['vn']['vn-id']
-            self._db_cache['vns'][vn_id] = {'instance_ids':set([])}
-            vpc['vn_ids'].add(vn_id)
-	return rsp
+        return resp_dict['virtual-networks']
+    #end _network_list_project
 
-    def vn_get(self, request):
-	rsp = self._relay_request(request)
-	return rsp
+    # find port ids on a given project
+    def _port_list_project(self, project_id):
+        ret_list = []
+        project_nets = self._network_list_project(project_id)
+        for net in project_nets:
+            net_obj = self._vnc_lib.virtual_network_read(id = net['uuid'])
+            for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
+                port_fq_name = port_back_ref['to']
+                port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
+                port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
+                ret_info = {}
+                ret_info['id'] = port_obj.uuid
+                ret_list.append(ret_info)
 
-    def vn_delete(self, request):
-	rsp = self._relay_request(request)
-	return rsp
+        return ret_list
+    #end _port_list_project
 
-    def network_create(self, project_id, name):
+    def _network_read(self, net_uuid):
+        net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
+        return net_obj
+    #end _network_read
+
+    # Conversion routines between VNC and Quantum objects
+    def _subnet_vnc_to_quantum(self, subnet_obj, net_obj):
+        sn_id = net_obj.uuid # TODO assumption for now
+
+        sn_q_dict = {}
+        sn_q_dict['name'] = ''
+        sn_q_dict['id'] = sn_id
+        # TODO resolve tenant_id/tenant_name with keystone sync-up on boot
+        sn_q_dict['tenant_id'] = net_obj.parent_name
+        sn_q_dict['network_id'] = net_obj.uuid
+        sn_q_dict['ip_version'] = 4 #TODO ipv6?
+
+        cidr = '%s/%s' %(subnet_obj.get_ip_prefix(),
+                         subnet_obj.get_ip_prefix_len())
+        sn_q_dict['cidr'] = cidr
+
+        # TODO put some well-known address below?
+        sn_q_dict['gateway_ip'] = '%s' %(subnet_obj.get_ip_prefix())
+
+        first_ip = str(IPNetwork(cidr).network + 1)
+        last_ip = str(IPNetwork(cidr).broadcast - 1)
+        sn_q_dict['allocation_pools'] = \
+            [{'id': 'TODO-allocation_pools-id',
+             'subnet_id': sn_id,
+             'first_ip': first_ip, 
+             'last_ip': last_ip, 
+             'available_ranges': {}
+            }]
+
+        # TODO get from ipam_obj
+        sn_q_dict['enable_dhcp'] = False 
+        sn_q_dict['dns_nameservers'] = [{'address': '169.254.169.254',
+                                        'subnet_id': sn_id}]
+
+        sn_q_dict['routes'] = [{'destination': 'TODO-destination',
+                               'nexthop': 'TODO-nexthop',
+                               'subnet_id': sn_id
+                              }]
+
+        sn_q_dict['shared'] = False
+
+        return sn_q_dict
+    #end _subnet_vnc_to_quantum
+
+    def _network_vnc_to_quantum(self, net_obj):
+        net_q_dict = {}
+        net_q_dict['id'] = net_obj.uuid
+        net_q_dict['name'] = net_obj.name
+        # TODO resolve name/id for projects
+        net_q_dict['tenant_id'] = net_obj.parent_name
+        # TODO fix-me
+        net_q_dict['admin_state_up'] = True
+        net_q_dict['shared'] = False
+        net_q_dict['status'] = constants.NET_STATUS_ACTIVE
+
+        net_q_dict['ports'] = []
+        for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
+            fq_name = port_back_ref['to']
+            port_obj = self._vnc_lib.virtual_machine_interface_read(id = fq_name[-1])
+            port_q_dict = self._port_vnc_to_quantum(port_obj)
+            net_q_dict['ports'].append(port_q_dict)
+
+        net_q_dict['subnets'] = []
+        for ipam_ref in net_obj.get_network_ipam_refs():
+            subnets = ipam_ref['attr'].get_subnet()
+            for subnet in subnets:
+                sn_q_dict = self._subnet_vnc_to_quantum(subnet, net_obj)
+                net_q_dict['subnets'].append(sn_q_dict)
+
+        return net_q_dict
+    #end _network_vnc_to_quantum
+
+    def _port_vnc_to_quantum(self, port_obj):
+        port_q_dict = {}
+        port_q_dict['name'] = port_obj.uuid
+        port_q_dict['id'] = port_obj.uuid
+
+        net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
+        # TODO read obj directly from fq_name once lib supports
+        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_obj = self._vnc_lib.virtual_network_read(id = net_id)
+        port_q_dict['tenant_id'] = net_obj.parent_name
+        port_q_dict['network_id'] = net_obj.uuid
+
+        # TODO RHS below may need fixing
+        port_q_dict['mac_address'] = \
+           port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
+
+        port_q_dict['fixed_ips'] = []
+        for ip_back_ref in port_obj.get_instance_ip_back_refs():
+            ip_fq_name = ip_back_ref['to']
+            ip_obj = self._vnc_lib.instance_ip_read(id = ip_fq_name[-1])
+            ip_addr = ip_obj.get_instance_ip_address()
+
+            ip_q_dict = {}
+            ip_q_dict['port_id'] = port_obj.uuid
+            ip_q_dict['ip_address'] = ip_addr
+            #TODO setting net-id to both subnet and net
+            ip_q_dict['subnet_id'] = net_id
+            ip_q_dict['net_id'] = net_id
+
+            port_q_dict['fixed_ips'].append(ip_q_dict)
+
+        port_q_dict['admin_state_up'] = True
+        port_q_dict['status'] = constants.PORT_STATUS_ACTIVE
+        port_q_dict['device_id'] = port_obj.parent_name
+        port_q_dict['device_owner'] = 'TODO-device-owner'
+
+        return port_q_dict
+    #end _port_vnc_to_quantum
+
+    # public methods
+    def network_create(self, network):
+        net_name = network['name']
+        project_id = network['tenant_id']
         project_obj = Project(project_id)
         # TODO remove below once api-server can read and create projects
         # from keystone on startup
@@ -107,27 +233,23 @@ class DBInterface(object):
             # project doesn't exist, create it
             self._vnc_lib.project_create(project_obj)
 
-        net_obj = VirtualNetwork(name, project_obj)
+        net_obj = VirtualNetwork(net_name, project_obj)
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
 
-        return net_uuid
+        return self._network_vnc_to_quantum(net_obj)
     #end network_create
-
-    def _network_read(self, net_uuid):
-        net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
-        return net_obj
-    #end _network_read
 
     def network_read(self, net_uuid):
         net_obj = self._network_read(net_uuid)
-        ret_dict = {}
-        ret_dict['id'] = net_obj.uuid
-        ret_dict['name'] = net_obj.name
-        # TODO resolve name/id for projects
-        ret_dict['tenant_id'] = net_obj.parent_name
 
-        return ret_dict
+        return self._network_vnc_to_quantum(net_obj)
     #end network_read
+
+    #def network_update(self, net_id, net_dict):
+    ##end network_update
+
+    #def network_delete(self, net_id):
+    ##end network_delete
 
     # TODO request based on filter contents
     def network_list(self, filters = None):
@@ -164,48 +286,22 @@ class DBInterface(object):
                                 continue
 
                 net_dict = self.network_read(net_info['uuid'])
-                r_info = {}
-                r_info['id'] = net_info['uuid']
-                r_info['tenant_id'] = net_dict['tenant_id']
-                r_info['name'] = net_info['name']
-                ret_list.append(r_info)
+                ret_list.append(net_dict)
 
         return ret_list
     #end network_list
 
-    #def network_list(self, filters = None):
-    #    project_obj = None
-    #    ret_list = []
-    #    if filters and filters.has_key('tenant_id'):
-    #        # TODO support more than one project
-    #        project_id = filters['tenant_id'][0]
-    #        project_obj = Project(project_id)
-
-    #    resp_str = self._vnc_lib.virtual_networks_list(project_obj)
-    #    resp_dict = json.loads(resp_str)
-
-    #    for net_info in resp_dict['virtual-networks']:
-    #        if (filters and filters.has_key('id') and 
-    #            not net_info['uuid'] in filters['id']):
-    #            continue
-    #        r_info = {}
-    #        r_info['id'] = net_info['uuid']
-    #        r_info['name'] = net_info['name']
-    #        ret_list.append(r_info)
-
-    #    return ret_list
-    ##end network_list
-
     def subnet_create(self, subnet):
-        net_id = subnet['subnet']['network_id']
+        net_id = subnet['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        project_obj = Project(subnet['subnet']['tenant_id'])
+        project_obj = Project(subnet['tenant_id'])
         netipam_obj = NetworkIpam(project = project_obj)
 
-        cidr = subnet['subnet']['cidr'].split('/')
+        cidr = subnet['cidr'].split('/')
         pfx = cidr[0]
         pfx_len = int(cidr[1])
+        subnet_vnc = SubnetType(pfx, pfx_len)
 
         net_ipam_refs = net_obj.get_network_ipam_refs()
         if not net_ipam_refs:
@@ -214,102 +310,47 @@ class DBInterface(object):
         else: # virtual-network already linked to ipam
             # TODO if support for multiple ipams refs is added,
             # below needs to change
-            vnsn_data = net_ipam_refs[0][1]
-            vnsn_data.subnet.append(SubnetType(pfx, pfx_len))
+            vnsn_data = net_ipam_refs[0]['attr']
+            vnsn_data.subnet.append(subnet_vnc)
             net_obj.set_network_ipam(netipam_obj, vnsn_data)
 
-        resp_str = self._vnc_lib.virtual_network_update(net_obj)
-        return resp_str
+        self._vnc_lib.virtual_network_update(net_obj)
+
+        return self._subnet_vnc_to_quantum(subnet_vnc, net_obj)
     #end subnet_create
 
-    def subnets_set(self, request):
-        rsp = self._relay_request(request)
-	return rsp
+    #def subnet_read(self, subnet_id):
+    ##end subnet_read
 
-    def subnets_get_vnc(self, request):
-        rsp = self._relay_request(request)
-	return rsp
+    #def subnet_update(self, subnet_id, subnet_dict):
+    ##end subnet_read
 
-    def subnets_read(self, filters = None):
+    #def subnet_delete(self, subnet_id):
+    ##end subnet_read
+
+    def subnets_list(self, filters = None):
         ret_subnets = []
 
         networks = self.network_list(filters)
         for network in networks:
             net_obj = self._network_read(network['id'])
-
             for ipam_ref in net_obj.get_network_ipam_refs():
                 subnets = ipam_ref['attr'].get_subnet()
                 for subnet in subnets:
-                    sn_info = {}
-                    sn_info['cidr'] = '%s/%s' %(subnet.get_ip_prefix(),
-                                                subnet.get_ip_prefix_len())
-                    sn_info['network_id'] = net_obj.uuid
-                    # TODO put some well-known address below?
-                    sn_info['gateway_ip'] = '%s' %(subnet.get_ip_prefix())
-                    ret_subnets.append(sn_info)
-
-        #for subnet_id in subnet_ids:
-        #    (vn_id, ip_addr) = self._db_cache['subnets'][subnet_id]
-        #    # TODO query api-server to find ipam info for vn,ip pair
-        #    subnet = {}
-        #    subnet['cidr'] = ip_addr
-        #    subnet['gateway_ip'] = str((IPAddress(ip_addr) &
-        #                                IPAddress('255.255.255.0')) |
-        #                               IPAddress('0.0.0.254'))
-        #    ret_subnets.append(subnet)
+                    sn_q_dict = self._subnet_vnc_to_quantum(subnet, net_obj)
+                    ret_subnets.append(sn_q_dict)
 
         return ret_subnets
-        
-        
-    def security_group_create(self, request):
-	rsp = self._relay_request(request)
-	return rsp
-
-    def policy_create(self, request):
-	rsp = self._relay_request(request)
-	return rsp
-
-    def policy_entry_list_create(self, request, tenant_uuid, pol_id, pe_list):
-        pass
-
-    def _instance_create(self, tenant_id, vn_id, instance_id):
-        url_path = "/tenants/%s/instance" %(tenant_id)
-        dict_param = {'instance_id': instance_id,
-                      'vn_id': vn_id}
-        json_param = json.dumps(dict_param)
-        json_body = '{"instance":' + json_param + '}'
-
-	url = "http://%s:%s%s" %(self._api_srvr_ip, self._api_srvr_port,
-	                         url_path)
-        rsp = self._request_api_server(url, 'POST', json_body, _DEFAULT_HEADERS)
-        return rsp
-
-    def _port_create(self, tenant_id, vn_id, instance_id):
-        url_path = "/tenants/%s/port" %(tenant_id)
-        # TODO hints may have to be passed from quantum for alloc param
-        addr_param = {'ip_alloc': True,
-                      'mac_alloc': True}
-        dict_param = {'vn_id': vn_id,
-                      'instance_id': instance_id,
-                      'addr_param': addr_param}
-        json_param = json.dumps(dict_param)
-        json_body = '{"port":' + json_param + '}'
-
-	url = "http://%s:%s%s" %(self._api_srvr_ip, self._api_srvr_port,
-	                         url_path)
-        rsp = self._request_api_server(url, 'POST', json_body, _DEFAULT_HEADERS)
-        return rsp
+    #end subnets_list
 
     def port_create(self, port):
-        ret_port = port
-
         # TODO check for duplicate add and return
         project_id = port['tenant_id']
         net_id = port['network_id']
         instance_id = port['device_id']
         server_id = port['compute_node_id']
 
-        server_name = "server-%s" %(server_id)
+        server_name = "%s" %(server_id)
         server_obj = VirtualRouter(server_name)
         try:
             id = self._vnc_lib.fq_name_to_id(server_obj.get_fq_name())
@@ -345,69 +386,34 @@ class DBInterface(object):
 
         # TODO below reads back default parent name, fix it
         port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
-        ret_port['id'] = port_id
-        # TODO RHS below may need fixing
-        ret_port['mac_address'] = \
-           port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
-        ret_port['fixed_ips'] = fixed_ips
 
-        return ret_port
+        q_port = self._port_vnc_to_quantum(port_obj)
 
-        ## Create instance in oper-db if not already done
-        #if not self._db_cache['instances'].has_key(instance_id):
-        #    rsp = self._instance_create(tenant_id, vn_id, instance_id)
-        #    if rsp.status_code == 200:
-        #        self._db_cache['instances'][instance_id] = {'port_ids': set([])}
-        #        self._db_cache['vns'][vn_id]['instance_ids'].add(instance_id)
-        #    else:
-        #        raise Exception("OperDB create instance failed: %s:%s" \
-        #                        %(rsp.status_code, rsp.text))
-      
-        # Create port in oper-db
-        #rsp = self._port_create(tenant_id, vn_id, instance_id)
-        #if rsp.status_code == 200:
-        #    rsp_port = json.loads(rsp.text)['port']
-        #    # 'rsp_port' has vnc canonical port info. convert into
-        #    # 'new_port' which is quantum canonical form and store in cache.
-        #    # port_list() will pick from cache and send back this info
-        ##    port_id = rsp_port['port-id']
-        #    port_macs = rsp_port['port-macs']
-        #    port_ips = rsp_port['port-ips']
+        return q_port
+    #end port_create
 
-        #    new_port['id'] = rsp_port['port-id']
-        #    new_port['mac_address'] = rsp_port['port-macs'][0]
-        #    # TODO is this enough for subnet_id?
-        #    fixed_ips =  \
-        #        [{'ip_address': '%s' %(ipa),
-        #         'subnet_id': '%s %s' %(port_id, ipa)} for ipa in port_ips]
-        #    new_port['fixed_ips'] = fixed_ips
+    def port_read(self, context, id, fields = None):
+        port_obj = self._vnc_lib.virtual_machine_interface_read(id = id)
 
-        #    for fip in fixed_ips:
-        #        # remember vn a subnet was assigned from
-        #        self._db_cache['subnets'][fip['subnet_id']] = \
-        #                                 (vn_id, fip['ip_address'])
-        #    self._db_cache['ports'][port_id] = new_port
-        #    self._db_cache['instances'][instance_id]['port_ids'].add(port_id)
-        #else:
-        #    raise Exception("OperDB create port failed: %s:%s" \
-        #                    %(rsp.status_code, rsp.text))
+        return self._port_vnc_to_quantum(port_obj)
+    #end port_read
 
-        #return new_port
-
-    def port_list(self, filters = None, detailed = False):
+    def port_list(self, filters = None):
         project_obj = None
-        ret_ports = []
+        ret_q_ports = []
 
         # TODO used to find dhcp server field. support later...
         if filters.has_key('device_owner'):
-            return ret_ports
+            return ret_q_ports
 
         if not filters.has_key('device_id'):
             # Listing from back references
             for proj_id in filters['tenant_id']:
-                proj_ports = self._port_list_project(proj_id)
-                ret_ports.extend(proj_ports)
-            return ret_ports
+                proj_port_ids = self._port_list_project(proj_id)
+                for port_id in proj_port_ids:
+                    q_port = self.port_read(None, port_id)
+                    ret_q_ports.append(q_port)
+            return ret_q_ports
 
         # Listing from parent to children
         virtual_machine_ids = filters['device_id']
@@ -418,70 +424,12 @@ class DBInterface(object):
                 continue
             resp_str = self._vnc_lib.virtual_machine_interfaces_list(vm_obj)
             resp_dict = json.loads(resp_str)
-            ret_ports.extend(resp_dict['virtual-machine-interfaces'])
+            vm_intf_ids = resp_dict['virtual-machine-interfaces']
+            for vm_intf in vm_intf_ids:
+                q_port = self.port_read(None, vm_intf['uuid'])
+                ret_q_ports.append(q_port)
 
-        # grab/set additional details for the list of ports
-        for port_info in ret_ports:
-            port_id = port_info['uuid']
-            port_info['id'] = port_id
-            port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
-            # TODO fix RHS
-            port_info['mac_address'] = \
-                port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
-
-            net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
-            net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
-            port_info['network_id'] = net_id
-
-            port_info['fixed_ips'] = []
-            for ip_back_ref in port_obj.get_instance_ip_back_refs():
-                ip_fq_name = ip_back_ref['to']
-                # ip_id == ip_fq_name could have been assumed
-                ip_id = self._vnc_lib.fq_name_to_id(ip_fq_name)
-                ip_obj = self._vnc_lib.instance_ip_read(id = ip_id)
-                ip_addr = ip_obj.get_instance_ip_address()
-
-                ip_info = {}
-                ip_info['ip_address'] = ip_addr
-                # instance-ip will always be on port's vn
-                ip_info['subnet_id'] = net_id
-                port_info['fixed_ips'].append(ip_info)
-
-        return ret_ports
+        return ret_q_ports
     #end port_list
 
-    # find projects on a given domain
-    def _project_list_domain(self, domain_id):
-        # TODO resolve domain_id vs domain_name
-        domain_obj = Domain(domain_id)
-        resp_str = self._vnc_lib.projects_list(domain_obj)
-        resp_dict = json.loads(resp_str)
-
-        return resp_dict['projects']
-    #end _project_list_domain
-
-    # find networks on a given project
-    def _network_list_project(self, project_id):
-        # TODO resolve project_id vs project_name
-        project_obj = Project(project_id)
-        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
-        resp_dict = json.loads(resp_str)
-
-        return resp_dict['virtual-networks']
-    #end _network_list_project
-
-    def _port_list_project(self, project_id):
-        ret_list = []
-        project_nets = self._network_list_project(project_id)
-        for net in project_nets:
-            net_obj = self._vnc_lib.virtual_network_read(id = net['uuid'])
-            for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
-                port_fq_name = port_back_ref['to']
-                port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
-                port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
-                ret_info = {}
-                ret_info['id'] = port_obj.uuid
-                ret_list.append(ret_info)
-
-        return ret_list
-    #end _port_list_project
+#end class DBInterface
