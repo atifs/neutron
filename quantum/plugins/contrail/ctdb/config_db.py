@@ -33,14 +33,7 @@ class DBInterface(object):
         self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
                                api_srvr_ip, api_srvr_port, '/')
 
-        # TODO move this to db_cache class
-        self._db_cache = {}
-        self._db_cache['tenants'] = {'infra': {'vpc_ids':set([])} }
-        self._db_cache['vpcs'] = {}
-        self._db_cache['vns'] = {}
-        self._db_cache['instances'] = {}
-        self._db_cache['ports'] = {}
-        self._db_cache['subnets'] = {}
+        self._subnet_map = {}
     #end __init__
 
     # Helper routines
@@ -109,24 +102,56 @@ class DBInterface(object):
         return net_obj
     #end _network_read
 
+    def _subnet_vnc_create_mapping(self, subnet_id, subnet_key):
+        #TODO store in api server
+        self._subnet_map[subnet_id] = subnet_key
+        self._subnet_map[subnet_key] = subnet_id
+
+        #self._vnc_lib.map_store("Quantum Plugin", subnet_id, subnet_key)
+        #self._vnc_lib.map_store("Quantum Plugin", subnet_key, subnet_id)
+    #end _subnet_vnc_create_mapping
+
+    def _subnet_vnc_read_mapping(self, id = None, key = None):
+        #TODO retrieve from api server
+        if id:
+            return self._subnet_map[id]
+        if key:
+            return self._subnet_map[key]
+    #end _subnet_vnc_read_mapping
+
+    def _subnet_vnc_delete_mapping(self, subnet_id, subnet_key):
+        #TODO delete from api server
+        del self._subnet_map[subnet_id]
+        del self._subnet_map[subnet_key]
+    #end _subnet_vnc_delete_mapping
+
+    def _subnet_vnc_get_key(self, subnet_vnc, net_obj):
+        pfx = subnet_vnc.get_ip_prefix()
+        pfx_len = subnet_vnc.get_ip_prefix_len()
+        fq_name_str = ':'.join(net_obj.get_fq_name())
+
+        return '%s %s/%s' %(fq_name_str, pfx, pfx_len)
+    #end _subnet_vnc_get_key
+
     # Conversion routines between VNC and Quantum objects
-    def _subnet_vnc_to_quantum(self, subnet_obj, net_obj):
-        sn_id = net_obj.uuid # TODO assumption for now
+    def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj):
 
         sn_q_dict = {}
         sn_q_dict['name'] = ''
-        sn_q_dict['id'] = sn_id
         # TODO resolve tenant_id/tenant_name with keystone sync-up on boot
         sn_q_dict['tenant_id'] = net_obj.parent_name
         sn_q_dict['network_id'] = net_obj.uuid
         sn_q_dict['ip_version'] = 4 #TODO ipv6?
 
-        cidr = '%s/%s' %(subnet_obj.get_ip_prefix(),
-                         subnet_obj.get_ip_prefix_len())
+        cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
+                         subnet_vnc.get_ip_prefix_len())
         sn_q_dict['cidr'] = cidr
 
-        # TODO put some well-known address below?
-        sn_q_dict['gateway_ip'] = '%s' %(subnet_obj.get_ip_prefix())
+        subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
+        sn_id = self._subnet_vnc_read_mapping(key = subnet_key)
+        sn_q_dict['id'] = sn_id
+
+        sn_q_dict['gateway_ip'] = '169.254.169.254'
 
         first_ip = str(IPNetwork(cidr).network + 1)
         last_ip = str(IPNetwork(cidr).broadcast - 1)
@@ -152,6 +177,15 @@ class DBInterface(object):
 
         return sn_q_dict
     #end _subnet_vnc_to_quantum
+
+    def _subnet_quantum_to_vnc(self, subnet_q):
+        cidr = subnet_q['cidr'].split('/')
+        pfx = cidr[0]
+        pfx_len = int(cidr[1])
+        subnet_vnc = SubnetType(pfx, pfx_len)
+
+        return subnet_vnc
+    #end _subnet_quantum_to_vnc
 
     def _network_vnc_to_quantum(self, net_obj):
         net_q_dict = {}
@@ -291,21 +325,18 @@ class DBInterface(object):
         return ret_list
     #end network_list
 
-    def subnet_create(self, subnet):
-        net_id = subnet['network_id']
+    def subnet_create(self, subnet_q):
+        net_id = subnet_q['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        project_obj = Project(subnet['tenant_id'])
+        project_obj = Project(subnet_q['tenant_id'])
         netipam_obj = NetworkIpam(project = project_obj)
 
-        cidr = subnet['cidr'].split('/')
-        pfx = cidr[0]
-        pfx_len = int(cidr[1])
-        subnet_vnc = SubnetType(pfx, pfx_len)
+        subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
 
         net_ipam_refs = net_obj.get_network_ipam_refs()
         if not net_ipam_refs:
-            vnsn_data = VnSubnetsType([SubnetType(pfx, pfx_len)])
+            vnsn_data = VnSubnetsType([subnet_vnc])
             net_obj.add_network_ipam(netipam_obj, vnsn_data)
         else: # virtual-network already linked to ipam
             # TODO if support for multiple ipams refs is added,
@@ -316,28 +347,68 @@ class DBInterface(object):
 
         self._vnc_lib.virtual_network_update(net_obj)
 
+        # allocate an id to the subnet and store mapping with
+        # api-server
+        subnet_id = str(uuid.uuid4())
+        subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
+        self._subnet_vnc_create_mapping(subnet_id, subnet_key)
+
         return self._subnet_vnc_to_quantum(subnet_vnc, net_obj)
     #end subnet_create
 
-    #def subnet_read(self, subnet_id):
-    ##end subnet_read
+    def subnet_read(self, subnet_id):
+        subnet_key = self._subnet_vnc_read_mapping(id = subnet_id)
+        net_fq_name_str = subnet_key.split()[0]
+        net_fq_name = net_fq_name_str.split(':')
 
-    #def subnet_update(self, subnet_id, subnet_dict):
-    ##end subnet_read
+        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_obj = self._network_read(net_id)
+        for ipam_ref in net_obj.get_network_ipam_refs():
+            subnets = ipam_ref['attr'].get_subnet()
+            for subnet_vnc in subnets:
+                if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
+                    return self._subnet_vnc_to_quantum(subnet_vnc, net_obj)
 
-    #def subnet_delete(self, subnet_id):
-    ##end subnet_read
+        return {}
+    #end subnet_read
+
+    def subnet_update(self, subnet_id, subnet_q):
+        # TODO implement this
+        return subnet_q
+    #end subnet_read
+
+    def subnet_delete(self, subnet_id):
+        subnet_key = self._subnet_vnc_read_mapping(id = subnet_id)
+        net_fq_name_str = subnet_key.split()[0]
+        net_fq_name = net_fq_name_str.split(':')
+
+        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_obj = self._network_read(net_id)
+        for ipam_ref in net_obj.get_network_ipam_refs():
+            orig_subnets = ipam_ref['attr'].get_subnet()
+            new_subnets = [subnet for subnet in orig_subnets \
+                           if self._subnet_vnc_get_key(subnet, net_obj) != subnet_key]
+            if len(orig_subnets) != len(new_subnets):
+                # matched subnet to be deleted
+                ipam_ref['attr'].set_subnet(new_subnets)
+                self._vnc_lib.virtual_network_update(net_obj)
+                self._subnet_vnc_delete_mapping(subnet_id, subnet_key)
+                return
+    #end subnet_delete
 
     def subnets_list(self, filters = None):
         ret_subnets = []
 
-        networks = self.network_list(filters)
+        networks = self.network_list()
         for network in networks:
             net_obj = self._network_read(network['id'])
             for ipam_ref in net_obj.get_network_ipam_refs():
                 subnets = ipam_ref['attr'].get_subnet()
                 for subnet in subnets:
                     sn_q_dict = self._subnet_vnc_to_quantum(subnet, net_obj)
+                    if (filters and filters.has_key('id') and
+                        not sn_q_dict['id'] in filters['id']):
+                        continue
                     ret_subnets.append(sn_q_dict)
 
         return ret_subnets
@@ -409,9 +480,9 @@ class DBInterface(object):
         if not filters.has_key('device_id'):
             # Listing from back references
             for proj_id in filters['tenant_id']:
-                proj_port_ids = self._port_list_project(proj_id)
-                for port_id in proj_port_ids:
-                    q_port = self.port_read(None, port_id)
+                proj_ports = self._port_list_project(proj_id)
+                for port in proj_ports:
+                    q_port = self.port_read(None, port['id'])
                     ret_q_ports.append(q_port)
             return ret_q_ports
 
