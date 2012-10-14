@@ -35,7 +35,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
     .. attention::  remove db. ref and replace ctdb. with db.
     """
 
-    supported_extension_aliases = ["vpc", "vn", "security_groups"]
+    supported_extension_aliases = ["ipam", "security_groups"]
     _cfgdb = None
     _operdb = None
     _args = None
@@ -69,6 +69,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         self._cfgdb = ContrailPlugin._cfgdb
     #end __init__
 
+    # Network API handlers
     def create_network(self, context, network):
         """
         Creates a new Virtual Network, and assigns it
@@ -79,7 +80,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         net_info = self._cfgdb.network_create(network['network'])
 
         # verify transformation is conforming to api
-        return self._make_network_dict(net_info)
+        net_dict = self._make_network_dict(net_info['q_api_data'])
+
+        net_dict.update(net_info['q_extra_data'])
+        return net_dict
     #end create_network
 
     def get_network(self, context, id, fields=None):
@@ -88,18 +92,24 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         net_info = self._cfgdb.network_read(id)
 
         # verify transformation is conforming to api
-        return self._make_network_dict(net_info)
+        net_dict = self._make_network_dict(net_info['q_api_data'], fields)
+
+        net_dict.update(net_info['q_extra_data'])
+        return self._fields(net_dict, fields)
     #end get_network 
 
-    def update_network(self, context, net_id, net_dict):
+    def update_network(self, context, net_id, network):
         """
         Updates the attributes of a particular Virtual Network.
         """
         LOG.debug("Plugin.update_network() called")
-        net_info = self._cfgdb.network_update(net_id, net_dict)
+        net_info = self._cfgdb.network_update(net_id, network['network'])
 
         # verify transformation is conforming to api
-        return self._make_network_dict(net_info)
+        net_dict = self._make_network_dict(net_info['q_api_data'])
+
+        net_dict.update(net_info['q_extra_data'])
+        return net_dict
     #end update_network
 
     def delete_network(self, context, net_id):
@@ -117,32 +127,51 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         nets_info = self._cfgdb.network_list(filters)
 
-        # verify transformation is conforming to api
-        return [self._make_network_dict(net) for net in nets_info]
+        nets_dicts = []
+        for n_info in nets_info:
+            # verify transformation is conforming to api
+            n_dict = self._make_network_dict(n_info['q_api_data'], fields)
+
+            n_dict.update(n_info['q_extra_data'])
+            nets_dicts.append(n_dict)
+
+        return nets_dicts
     #end get_networks
 
+    # Subnet API handlers
     def create_subnet(self, context, subnet):
         subnet_info = self._cfgdb.subnet_create(subnet['subnet'])
         
         # verify transformation is conforming to api
-        return self._make_subnet_dict(subnet_info)
+        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
+
+        subnet_dict.update(subnet_info['q_extra_data'])
+        return subnet_dict
     #end create_subnet
 
     def get_subnet(self, context, subnet_id, fields = None):
         subnet_info = self._cfgdb.subnet_read(subnet_id)
         
         # verify transformation is conforming to api
-        return self._make_subnet_dict(subnet_info)
+        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'], fields)
+
+        subnet_dict.update(subnet_info['q_extra_data'])
+        return self._fields(subnet_dict, fields)
     #end get_subnet
 
     def update_subnet(self, context, subnet_id, subnet):
         subnet_info = self._cfgdb.subnet_update(subnet_id, subnet['subnet'])
 
         # verify transformation is conforming to api
-        return self._make_subnet_dict(subnet_info)
+        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
+
+        subnet_dict.update(subnet_info['q_extra_data'])
+        return subnet_dict
     #end update_subnet
 
     def delete_subnet(self, context, subnet_id):
+        LOG.debug("Plugin.delete_subnet() called")
+
         self._cfgdb.subnet_delete(subnet_id)
     #end delete_subnet
 
@@ -153,12 +182,79 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         LOG.debug("Plugin.get_subnets() called")
 
         # tenant is project (not domain) right now
-        subnets = []
-        subnets = self._cfgdb.subnets_list(filters)
+        subnets_dicts = []
+        subnets_info = self._cfgdb.subnets_list(filters)
 
-	return subnets
+        for sn_info in subnets_info:
+            # verify transformation is conforming to api
+            sn_dict = self._make_subnet_dict(sn_info['q_api_data'], fields)
+
+            sn_dict.update(sn_info['q_extra_data'])
+            subnets_dicts.append(sn_dict)
+
+        return subnets_dicts
     #end get_subnets
 
+    # Ipam API handlers
+    def create_ipam(self, context, ipam):
+        """
+        Creates a new IPAM, and assigns it
+        a symbolic name.
+        """
+        LOG.debug("Plugin.create_ipam() called")
+
+        ipam_info = self._cfgdb.ipam_create(ipam['ipam'])
+
+        # TODO add this in extension
+        ##verify transformation is conforming to api
+        #return self._make_ipam_dict(ipam_info)
+        return ipam_info
+    #end create_ipam
+
+    def get_ipam(self, context, id, fields=None):
+        LOG.debug("Plugin.get_ipam() called")
+
+        ipam_info = self._cfgdb.ipam_read(id)
+
+        # TODO add this in extension
+        ## verify transformation is conforming to api
+        #return self._make_ipam_dict(ipam_info)
+        return ipam_info
+    #end get_ipam 
+
+    def update_ipam(self, context, id, ipam_dict):
+        """
+        Updates the attributes of a particular IPAM.
+        """
+        LOG.debug("Plugin.update_ipam() called")
+        ipam_info = self._cfgdb.ipam_update(id, ipam_dict)
+
+        # TODO add this in extension
+        ## verify transformation is conforming to api
+        #return self._make_ipam_dict(ipam_info)
+        return ipam_info
+    #end update_ipam
+
+    def delete_ipam(self, context, ipam_id):
+        """
+        Deletes the ipam with the specified identifier
+        """
+        LOG.debug("Plugin.delete_ipam() called")
+
+        self._cfgdb.ipam_delete(ipam_id)
+    #end delete_ipam
+
+    def get_ipams(self, context, filters=None, fields=None):
+        LOG.debug("Plugin.get_ipams() called")
+
+        ipams_info = self._cfgdb.ipam_list(filters)
+
+        # verify transformation is conforming to api
+        return [self._make_ipam_dict(ipam_info) \
+                     for ipam_info in ipams_info]
+    #end get_ipams
+
+    # Port API handlers
     def create_port(self, context, port):
         """
         Creates a port on the specified Virtual Network.
@@ -168,7 +264,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         port_info = self._operdb.port_create(port['port'])
 
         # verify transformation is conforming to api
-        return self._make_port_dict(port_info)
+        port_dict = self._make_port_dict(port_info['q_api_data'])
+
+        port_dict.update(port_info['q_extra_data'])
+        return port_dict
     #end create_port
 
     def get_port(self, context, port_id, fields = None):
@@ -177,7 +276,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         port_info = self._operdb.port_read(port_id)
 
         # verify transformation is conforming to api
-        return self._make_port_dict(port_info)
+        port_dict = self._make_port_dict(port_info['q_api_data'], fields)
+
+        port_dict.update(port_info['q_extra_data'])
+        return self._fields(port_dict, fields)
     #end get_port
 
     def update_port(self, context, port_id, port):
@@ -189,7 +291,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         port_info = self._operdb.port_update(port_id, port['port'])
 
         # verify transformation is conforming to api
-        return self._make_port_dict(port_info)
+        port_dict = self._make_port_dict(port_info['q_api_data'])
+
+        port_dict.update(port_info['q_extra_data'])
+        return port_dict
     #end update_port
 
     def delete_port(self, context, port_id):
@@ -209,13 +314,20 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         Retrieves all port identifiers belonging to the
         specified Virtual Network.
         """
-        LOG.debug("Plugin.get_all_ports() called")
+        LOG.debug("Plugin.get_ports() called")
 
         # TODO validate network ownership of net_id by tenant_id
         ports_info = self._operdb.port_list(filters)
 
-        # verify transformation is conforming to api
-        return [self._make_port_dict(port) for port in ports_info]
+        ports_dicts = []
+        for p_info in ports_info:
+            # verify transformation is conforming to api
+            p_dict = self._make_port_dict(p_info['q_api_data'], fields)
+
+            p_dict.update(p_info['q_extra_data'])
+            ports_dicts.append(p_dict)
+
+        return ports_dicts
     #end get_ports
 
     def plug_interface(self, tenant_id, net_id, port_id, remote_interface_id):
