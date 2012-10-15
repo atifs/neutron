@@ -11,7 +11,7 @@ import re
 import uuid
 import json
 import uuid
-from netaddr import IPNetwork
+from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
 from vnc_api import *
@@ -159,6 +159,20 @@ class DBInterface(object):
 
         return '%s %s/%s' %(fq_name_str, pfx, pfx_len)
     #end _subnet_vnc_get_key
+
+    def _ip_address_to_subnet_id(self, ip_addr, net_obj):
+        for ipam_ref in net_obj.get_network_ipam_refs():
+            subnets = ipam_ref['attr'].get_subnet()
+            for subnet_vnc in subnets:
+                cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
+                                 subnet_vnc.get_ip_prefix_len())
+                if IPAddress(ip_addr) in IPSet([cidr]):
+                    subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
+                    subnet_id = self._subnet_vnc_read_mapping(key = subnet_key)
+                    return subnet_id
+
+        return None
+    #end _ip_address_to_subnet_id
 
     # Conversion routines between VNC and Quantum objects
     def _network_quantum_to_vnc(self, network_q):
@@ -318,8 +332,8 @@ class DBInterface(object):
             ip_q_dict = {}
             ip_q_dict['port_id'] = port_obj.uuid
             ip_q_dict['ip_address'] = ip_addr
-            #TODO setting net-id to both subnet and net
-            ip_q_dict['subnet_id'] = net_id
+            ip_q_dict['subnet_id'] = self._ip_address_to_subnet_id(ip_addr,
+                                                                   net_obj)
             ip_q_dict['net_id'] = net_id
 
             port_q_dict['fixed_ips'].append(ip_q_dict)
@@ -537,11 +551,13 @@ class DBInterface(object):
 
         # create the objects
         port_id = self._vnc_lib.virtual_machine_interface_create(port_obj)
-        self._vnc_lib.instance_ip_create(ip_obj)
+        ip_id = self._vnc_lib.instance_ip_create(ip_obj)
 
+        # read back the allocated ip address
+        ip_obj = self._vnc_lib.instance_ip_read(id = ip_id)
         ip_addr = ip_obj.get_instance_ip_address()
-        # TODO find subnet/subnet-id to which this address belongs
-        fixed_ips =  [{'ip_address': '%s' %(ip_addr), 'subnet_id': net_id}]
+        sn_id = self._ip_address_to_subnet_id(ip_addr, net_obj)
+        fixed_ips =  [{'ip_address': '%s' %(ip_addr), 'subnet_id': sn_id}]
 
         # TODO below reads back default parent name, fix it
         port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
