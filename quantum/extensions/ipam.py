@@ -29,20 +29,30 @@ RESOURCE_ATTRIBUTE_MAP = {
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
                       'is_visible': True},
-        'ipam_data': {'allow_post': True, 'allow_put': True,
-                      'is_visible': True, 'default': None}
+        'mgmt': {'allow_post': True, 'allow_put': True,
+                 'is_visible': True, 'default': None}
     },
 }
 
 # TODO should this be tied to ipam extension?
 EXTENDED_ATTRIBUTES_2_0 = {
     'networks': {
-        'contrail:instances': {'allow_post': False,
-                               'allow_put': False,
-                               'is_visible': True},
-        'contrail:references': {'allow_post': False,
-                                'allow_put': False,
-                                'is_visible': True},
+        'contrail:instance_count': {'allow_post': False,
+                                    'allow_put': False,
+                                    'is_visible': True},
+        'contrail:policy': {'allow_post': False,
+                            'allow_put': False,
+                            'default': '',
+                            'is_visible': True},
+    },
+    'subnets': {
+        'contrail:instance_count': {'allow_post': False,
+                                    'allow_put': False,
+                                    'is_visible': True},
+        'contrail:ipam_fq_name': {'allow_post': True,
+                                  'allow_put': True,
+                                  'default': '',
+                                  'is_visible': True},
     }
 }
 class Ipam(object):

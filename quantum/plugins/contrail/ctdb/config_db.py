@@ -107,6 +107,15 @@ class DBInterface(object):
         return resp_dict['virtual-networks']
     #end _network_list_project
 
+    def _ipam_list_project(self, project_id):
+        # TODO resolve project_id vs project_name
+        project_obj = Project(project_id)
+        resp_str = self._vnc_lib.network_ipams_list(project_obj)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['network-ipams']
+    #end _ipam_list_project
+
     # find port ids on a given network
     def _port_list_network(self, network_id):
         ret_list = []
@@ -133,6 +142,27 @@ class DBInterface(object):
 
         return ret_list
     #end _port_list_project
+
+    # Returns True if 
+    #     * no filter is specified
+    #     OR
+    #     * search-param is not present in filters
+    #     OR
+    #     * 1. search-param is present in filters AND
+    #       2. resource matches param-list AND
+    #       3. shared parameter in filters is False
+    def _filters_is_present(self, filters, key_name, match_value):
+        if filters and filters.has_key(key_name):
+            try:
+                idx = filters[key_name].index(match_value)
+                if (filters.has_key('shared') and
+                    filters['shared'][idx] == True):
+                    return False # no shared-subnet support
+            except ValueError: # not in requested list
+                return False
+
+        return True
+    #end _filters_is_present
 
     def _network_read(self, net_uuid):
         net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
@@ -214,15 +244,18 @@ class DBInterface(object):
         for ipam_ref in net_obj.get_network_ipam_refs():
             subnets = ipam_ref['attr'].get_subnet()
             for subnet in subnets:
-                sn_info = self._subnet_vnc_to_quantum(subnet, net_obj)
+                sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                                                      ipam_ref['to'])
                 sn_dict = sn_info['q_api_data']
                 sn_dict.update(sn_info['q_extra_data'])
                 net_q_dict['subnets'].append(sn_dict)
 
-        # TODO determine right values
         extra_dict = {}
-        extra_dict['contrail:instances'] = 0
-        extra_dict['contrail:references'] = 0
+        # TODO determine right values
+        extra_dict['contrail:instance_count'] = 0
+        net_policy_refs = net_obj.get_network_policy_refs()
+        if net_policy_refs:
+            extra_dict['contrail:policy'] = net_policy_refs[0]['to']
 
         return {'q_api_data': net_q_dict,
                 'q_extra_data': extra_dict}
@@ -237,7 +270,7 @@ class DBInterface(object):
         return subnet_vnc
     #end _subnet_quantum_to_vnc
 
-    def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj):
+    def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj, ipam_fq_name):
         sn_q_dict = {}
         sn_q_dict['name'] = ''
         # TODO resolve tenant_id/tenant_name with keystone sync-up on boot
@@ -277,21 +310,47 @@ class DBInterface(object):
 
         sn_q_dict['shared'] = False
 
+        extra_dict = {}
+        extra_dict['contrail:instance_count'] = 0
+        extra_dict['contrail:ipam_fq_name'] = ':'.join(ipam_fq_name)
+
         return {'q_api_data': sn_q_dict,
-                'q_extra_data': {}}
+                'q_extra_data': extra_dict}
     #end _subnet_vnc_to_quantum
 
     def _ipam_quantum_to_vnc(self, ipam_q):
         ipam_name = ipam_q['name']
         project_id = ipam_q['tenant_id']
         project_obj = Project(project_id)
-        ipam_obj = NetworkIpam(ipam_name, project_obj)
+
+        options_obj = DhcpOptionsListType()
+        for opt_q in ipam_q['mgmt'].get('options', []):
+            options_obj.add_dhcp_option(DhcpOptionType(opt_q['option'],
+                                                       opt_q['value']))
+        ipam_mgmt_obj = IpamType.factory(ipam_method = ipam_q['mgmt']['method'],
+                                         dhcp_option_list = options_obj)
+
+        ipam_obj = NetworkIpam(ipam_name, project_obj, ipam_mgmt_obj)
 
         return ipam_obj
     #end _ipam_quantum_to_vnc
 
     def _ipam_vnc_to_quantum(self, ipam_obj):
         ipam_q_dict = {}
+        ipam_q_dict['id'] = ipam_obj.uuid
+        ipam_q_dict['name'] = ipam_obj.name
+        ipam_q_dict['tenant_id'] = ipam_obj.parent_name
+        ipam_q_dict['mgmt'] = {}
+        ipam_mgmt_obj = ipam_obj.get_network_ipam_mgmt()
+        if ipam_mgmt_obj:
+            ipam_q_dict['mgmt']['method'] = ipam_mgmt_obj.get_ipam_method()
+            ipam_q_dict['mgmt']['options'] = []
+            options_obj = ipam_mgmt_obj.get_dhcp_option_list()
+            for opt_obj in options_obj.get_dhcp_option():
+                opt_q = {}
+                opt_q['option'] = opt_obj.get_dhcp_option_name()
+                opt_q['value'] = opt_obj.get_dhcp_option_value()
+                ipam_q_dict['mgmt']['options'].append(opt_q)
 
         return {'q_api_data': ipam_q_dict,
                 'q_extra_data': {}}
@@ -373,8 +432,9 @@ class DBInterface(object):
     #def network_update(self, net_id, net_dict):
     ##end network_update
 
-    #def network_delete(self, net_id):
-    ##end network_delete
+    def network_delete(self, net_id):
+        self._vnc_lib.virtual_network_delete(id = net_id)
+    #end network_delete
 
     # TODO request based on filter contents
     def network_list(self, filters = None):
@@ -397,19 +457,9 @@ class DBInterface(object):
         for project_nets in all_nets:
             for proj_net in project_nets:
                 # TODO implement same for name specified in filter
-                if (filters and filters.has_key('id')):
-                    # if proj_net not in requested networks, ignore
-                    if not proj_net['uuid'] in filters['id']:
-                        continue
-                    else: # proj_net present in filters
-                        if filters.has_key('shared'):
-                            net_idx = filters['id'].index(proj_net['uuid'])
-                            shared = filters['shared'][net_idx]
-                            # if net_info in requested networks but request is
-                            # for shared network, ignore
-                            if shared:
-                                continue
-
+                proj_net_id = proj_net['uuid']
+                if not self._filters_is_present(filters, 'id', proj_net_id):
+                    continue
                 net_info = self.network_read(proj_net['uuid'])
                 ret_list.append(net_info)
 
@@ -421,8 +471,18 @@ class DBInterface(object):
         net_id = subnet_q['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        project_obj = Project(subnet_q['tenant_id'])
-        netipam_obj = NetworkIpam(project = project_obj)
+        if subnet_q.has_key('contrail:ipam_fq_name'):
+            ipam_fq_name = subnet_q['contrail:ipam_fq_name'].split(':')
+            domain_name = ipam_fq_name[0]
+            project_name = ipam_fq_name[1]
+            ipam_name = ipam_fq_name[2]
+
+            domain_obj = Domain(domain_name)
+            project_obj = Project(project_name, domain_obj)
+            netipam_obj = NetworkIpam(ipam_name, project_obj)
+        else: # link subnet with default ipam
+            project_obj = Project(subnet_q['tenant_id'])
+            netipam_obj = NetworkIpam(project = project_obj)
 
         subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
 
@@ -430,9 +490,11 @@ class DBInterface(object):
         if not net_ipam_refs:
             vnsn_data = VnSubnetsType([subnet_vnc])
             net_obj.add_network_ipam(netipam_obj, vnsn_data)
+            ipam_fq_name = netipam_obj.get_fq_name()
         else: # virtual-network already linked to ipam
             # TODO if support for multiple ipams refs is added,
             # below needs to change
+            ipam_fq_name = net_ipam_refs[0]['to']
             vnsn_data = net_ipam_refs[0]['attr']
             vnsn_data.subnet.append(subnet_vnc)
             net_obj.set_network_ipam(netipam_obj, vnsn_data)
@@ -445,7 +507,10 @@ class DBInterface(object):
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
         self._subnet_vnc_create_mapping(subnet_id, subnet_key)
 
-        return self._subnet_vnc_to_quantum(subnet_vnc, net_obj)
+        subnet_info = self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
+                                                  ipam_fq_name)
+
+        return subnet_info
     #end subnet_create
 
     def subnet_read(self, subnet_id):
@@ -459,7 +524,8 @@ class DBInterface(object):
             subnets = ipam_ref['attr'].get_subnet()
             for subnet_vnc in subnets:
                 if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
-                    return self._subnet_vnc_to_quantum(subnet_vnc, net_obj)
+                    return self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
+                                                       ipam_ref['to'])
 
         return {}
     #end subnet_read
@@ -491,27 +557,29 @@ class DBInterface(object):
     def subnets_list(self, filters = None):
         ret_subnets = []
 
+        # TODO refactor to query based on filter values
         nets_info = self.network_list()
         for n_info in nets_info:
             net_obj = self._network_read(n_info['q_api_data']['id'])
             for ipam_ref in net_obj.get_network_ipam_refs():
                 subnets = ipam_ref['attr'].get_subnet()
                 for subnet in subnets:
-                    sn_info = self._subnet_vnc_to_quantum(subnet, net_obj)
+                    sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                                                          ipam_ref['to'])
                     sn_id = sn_info['q_api_data']['id']
                     sn_proj_id = sn_info['q_api_data']['tenant_id']
                     sn_net_id = sn_info['q_api_data']['network_id']
 
                     if filters:
-                        if (filters.has_key('id') and
-                            not sn_id in filters['id']):
+                        if not self._filters_is_present(filters, 'id', sn_id):
                             continue
-                        if (filters.has_key('tenant_id') and
-                            not sn_proj_id in filters['tenant_id']):
+                        if not self._filters_is_present(filters, 'tenant_id',
+                                                        sn_proj_id):
                             continue
-                        if (filters.has_key('network_id') and
-                            not sn_net_id in filters['network_id']):
+                        if not self._filters_is_present(filters, 'network_id',
+                                                        sn_net_id):
                             continue
+
                     ret_subnets.append(sn_info)
 
         return ret_subnets
@@ -541,8 +609,34 @@ class DBInterface(object):
     #def ipam_delete(self, ipam_id):
     ##end ipam_delete
 
+    # TODO request based on filter contents
     def ipam_list(self, filters = None):
-        import pdb; pdb.set_trace()
+        ret_list = []
+
+        # collect phase
+        all_ipams = [] # all ipams in all projects
+        if filters and filters.has_key('tenant_id'):
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_ipams = self._ipam_list_project(p_id)
+                all_ipams.append(project_ipams)
+        else: # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                project_ipams = self._ipam_list_project(project['name'])
+                all_ipams.append(project_ipams)
+
+        # prune phase
+        for project_ipams in all_ipams:
+            for proj_ipam in project_ipams:
+                # TODO implement same for name specified in filter
+                proj_ipam_id = proj_ipam['uuid']
+                if not self._filters_is_present(filters, 'id', proj_ipam_id):
+                    continue
+                ipam_info = self.ipam_read(proj_ipam['uuid'])
+                ret_list.append(ipam_info)
+
+        return ret_list
     #end ipam_list
 
     # port api handlers

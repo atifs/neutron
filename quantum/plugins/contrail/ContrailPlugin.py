@@ -204,10 +204,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         """
         LOG.debug("Plugin.get_subnets() called")
 
-        # tenant is project (not domain) right now
-        subnets_dicts = []
         subnets_info = self._cfgdb.subnets_list(filters)
 
+        subnets_dicts = []
         for sn_info in subnets_info:
             # verify transformation is conforming to api
             sn_dict = self._make_subnet_dict(sn_info['q_api_data'], fields)
@@ -231,10 +230,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         # TODO add this in extension
         ##verify transformation is conforming to api
-        #return self._make_ipam_dict(ipam_info)
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        ipam_dict = ipam_info['q_api_data']
+        ipam_dict.update(ipam_info['q_extra_data'])
 
-        print "create_ipam(): " + pformat(ipam_info)
-        return ipam_info
+        print "create_ipam(): " + pformat(ipam_dict)
+        return ipam_dict
     #end create_ipam
 
     def get_ipam(self, context, id, fields=None):
@@ -244,10 +245,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         # TODO add this in extension
         ## verify transformation is conforming to api
-        #return self._make_ipam_dict(ipam_info)
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        ipam_dict = ipam_info['q_api_data']
+        ipam_dict.update(ipam_info['q_extra_data'])
 
-        print "get_ipam(): " + pformat(ipam_info)
-        return ipam_info
+        print "get_ipam(): " + pformat(ipam_dict)
+        return ipam_dict
     #end get_ipam 
 
     def update_ipam(self, context, id, ipam_dict):
@@ -259,10 +262,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         # TODO add this in extension
         ## verify transformation is conforming to api
-        #return self._make_ipam_dict(ipam_info)
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        ipam_dict = ipam_info['q_api_data']
+        ipam_dict.update(ipam_info['q_extra_data'])
 
-        print "update_ipam(): " + pformat(ipam_info)
-        return ipam_info
+        print "update_ipam(): " + pformat(ipam_dict)
+        return ipam_dict
     #end update_ipam
 
     def delete_ipam(self, context, ipam_id):
@@ -281,10 +286,17 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         ipams_info = self._cfgdb.ipam_list(filters)
 
-        # verify transformation is conforming to api
-        print "get_ipams(): "
-        return [self._make_ipam_dict(ipam_info) \
-                     for ipam_info in ipams_info]
+        ipams_dicts = []
+        for ipam_info in ipams_info:
+            # TODO add this in extension
+            # verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            ipam_dict = ipam_info['q_api_data']
+            ipam_dict.update(ipam_info['q_extra_data'])
+            ipams_dicts.append(ipam_dict)
+
+        print "get_ipams(): " + pformat(ipams_dicts)
+        return ipams_dicts
     #end get_ipams
 
     # Port API handlers
