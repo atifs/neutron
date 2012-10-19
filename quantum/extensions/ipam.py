@@ -44,6 +44,10 @@ EXTENDED_ATTRIBUTES_2_0 = {
                             'allow_put': False,
                             'default': '',
                             'is_visible': True},
+        'contrail:subnet_ipam': {'allow_post': False,
+                                 'allow_put': False,
+                                 'default': '',
+                                 'is_visible': True},
     },
     'subnets': {
         'contrail:instance_count': {'allow_post': False,

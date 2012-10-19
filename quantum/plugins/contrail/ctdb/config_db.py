@@ -220,6 +220,8 @@ class DBInterface(object):
 
     def _network_vnc_to_quantum(self, net_obj):
         net_q_dict = {}
+        extra_dict = {}
+
         net_q_dict['id'] = net_obj.uuid
         net_q_dict['name'] = net_obj.name
         # TODO resolve name/id for projects
@@ -241,6 +243,7 @@ class DBInterface(object):
             net_q_dict['ports'].append(port_dict)
 
         net_q_dict['subnets'] = []
+        extra_dict['contrail:subnet_ipam'] = []
         for ipam_ref in net_obj.get_network_ipam_refs():
             subnets = ipam_ref['attr'].get_subnet()
             for subnet in subnets:
@@ -249,8 +252,11 @@ class DBInterface(object):
                 sn_dict = sn_info['q_api_data']
                 sn_dict.update(sn_info['q_extra_data'])
                 net_q_dict['subnets'].append(sn_dict)
+                sn_ipam = {}
+                sn_ipam['subnet_cidr'] = sn_dict['cidr']
+                sn_ipam['ipam_fq_name'] = ipam_ref['to']
+                extra_dict['contrail:subnet_ipam'].append(sn_ipam)
 
-        extra_dict = {}
         # TODO determine right values
         extra_dict['contrail:instance_count'] = 0
         net_policy_refs = net_obj.get_network_policy_refs()
@@ -471,7 +477,7 @@ class DBInterface(object):
         net_id = subnet_q['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        if subnet_q.has_key('contrail:ipam_fq_name'):
+        if subnet_q['contrail:ipam_fq_name'] != '':
             ipam_fq_name = subnet_q['contrail:ipam_fq_name'].split(':')
             domain_name = ipam_fq_name[0]
             project_name = ipam_fq_name[1]
@@ -483,19 +489,23 @@ class DBInterface(object):
         else: # link subnet with default ipam
             project_obj = Project(subnet_q['tenant_id'])
             netipam_obj = NetworkIpam(project = project_obj)
+            ipam_fq_name = netipam_obj.get_fq_name()
 
         subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
 
-        net_ipam_refs = net_obj.get_network_ipam_refs()
-        if not net_ipam_refs:
+        # Locate list of subnets to which this subnet has to be appended
+        net_ipam_ref = None
+        for ipam_ref in net_obj.get_network_ipam_refs():
+            if ipam_ref['to'] == ipam_fq_name:
+                net_ipam_ref = ipam_ref
+                break
+
+        if not net_ipam_ref:
+            # First link from net to this ipam
             vnsn_data = VnSubnetsType([subnet_vnc])
             net_obj.add_network_ipam(netipam_obj, vnsn_data)
-            ipam_fq_name = netipam_obj.get_fq_name()
-        else: # virtual-network already linked to ipam
-            # TODO if support for multiple ipams refs is added,
-            # below needs to change
-            ipam_fq_name = net_ipam_refs[0]['to']
-            vnsn_data = net_ipam_refs[0]['attr']
+        else: # virtual-network already linked to this ipam
+            vnsn_data = net_ipam_ref['attr']
             vnsn_data.subnet.append(subnet_vnc)
             net_obj.set_network_ipam(netipam_obj, vnsn_data)
 
