@@ -7,9 +7,9 @@ from quantum.extensions import extensions
 from quantum import manager
 from quantum.openstack.common import cfg
 
-# Ipam Exceptions
-class IpamNotFound(qexception.NotFound):
-    message = _("IPAM %(id)s could not be found")
+# Policy Exceptions
+class PolicyNotFound(qexception.NotFound):
+    message = _("Policy %(id)s could not be found")
 
 def _validate_uuid_or_none(data, valid_values=None):
     if data is None:
@@ -20,7 +20,7 @@ attr.validators['type:uuid_or_none'] = _validate_uuid_or_none
 
 # Attribute Map
 RESOURCE_ATTRIBUTE_MAP = {
-    'ipams': {
+    'policys': {
         'id': {'allow_post': False, 'allow_put': False,
                'validate': {'type:regex': attr.UUID_PATTERN},
                'is_visible': True},
@@ -31,53 +31,24 @@ RESOURCE_ATTRIBUTE_MAP = {
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
                       'is_visible': True},
-        'mgmt': {'allow_post': True, 'allow_put': True,
-                 'is_visible': True, 'default': None}
+        'entries': {'allow_post': True, 'allow_put': True,
+                    'is_visible': True, 'default': ''},
     },
 }
 
-# TODO should this be tied to ipam extension?
-EXTENDED_ATTRIBUTES_2_0 = {
-    'networks': {
-        'contrail:fq_name': {'allow_post': False,
-                             'allow_put': False,
-                             'is_visible': True},
-        'contrail:instance_count': {'allow_post': False,
-                                    'allow_put': False,
-                                    'is_visible': True},
-        'contrail:policys': {'allow_post': True,
-                            'allow_put': True,
-                            'default': '',
-                            'is_visible': True},
-        'contrail:subnet_ipam': {'allow_post': False,
-                                 'allow_put': False,
-                                 'default': '',
-                                 'is_visible': True},
-    },
-    'subnets': {
-        'contrail:instance_count': {'allow_post': False,
-                                    'allow_put': False,
-                                    'is_visible': True},
-        'contrail:ipam_fq_name': {'allow_post': True,
-                                  'allow_put': True,
-                                  'default': '',
-                                  'is_visible': True},
-    }
-}
-class Ipam(object):
+class Policy(object):
 
     @classmethod
     def get_name(cls):
-        return "Network IP Address Management"
+        return "Network Policy"
 
     @classmethod
     def get_alias(cls):
-        return "ipam"
+        return "policy"
 
     @classmethod
     def get_description(cls):
-        return ("Configuration object for holding common to a set of"
-                " IP address blocks")
+        return ("Configuration object for Network Policies")
 
     @classmethod
     def get_namespace(cls):
@@ -92,7 +63,7 @@ class Ipam(object):
         """ Returns Ext Resources """
         exts = []
         plugin = manager.QuantumManager.get_plugin()
-        for resource_name in ['ipam']:
+        for resource_name in ['policy']:
             collection_name = resource_name + "s"
             params = RESOURCE_ATTRIBUTE_MAP.get(collection_name, dict())
 
@@ -110,32 +81,27 @@ class Ipam(object):
 
         return exts
 
-    def get_extended_resources(self, version):
-        if version == "2.0":
-            return EXTENDED_ATTRIBUTES_2_0
-        else:
-            return {}
-#end class Ipam
+#end class Policy
 
-class IpamPluginBase(object):
+class PolicyPluginBase(object):
 
     @abstractmethod
-    def create_ipam(self, context, ipam):
+    def create_policy(self, context, policy):
         pass
 
     @abstractmethod
-    def update_ipam(self, context, id, ipam):
+    def update_policy(self, context, id, policy):
         pass
 
     @abstractmethod
-    def get_ipam(self, context, id, fields=None):
+    def get_policy(self, context, id, fields=None):
         pass
 
     @abstractmethod
-    def delete_ipam(self, context, id):
+    def delete_policy(self, context, id):
         pass
 
     @abstractmethod
-    def get_ipams(self, context, filters=None, fields=None):
+    def get_policys(self, context, filters=None, fields=None):
         pass
-#end class IpamPluginBase
+#end class PolicyPluginBase

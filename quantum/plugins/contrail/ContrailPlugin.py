@@ -33,10 +33,10 @@ def _read_cfg(cfg_parser, section, option, default):
 
 class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
     """
-    .. attention::  remove db. ref and replace ctdb. with db.
+    .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
-    supported_extension_aliases = ["ipam", "security_groups"]
+    supported_extension_aliases = ["ipam", "policy", "security_groups"]
     _cfgdb = None
     _operdb = None
     _args = None
@@ -253,12 +253,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         return ipam_dict
     #end get_ipam 
 
-    def update_ipam(self, context, id, ipam_dict):
+    def update_ipam(self, context, id, ipam):
         """
         Updates the attributes of a particular IPAM.
         """
         LOG.debug("Plugin.update_ipam() called")
-        ipam_info = self._cfgdb.ipam_update(id, ipam_dict)
+        ipam_info = self._cfgdb.ipam_update(id, ipam)
 
         # TODO add this in extension
         ## verify transformation is conforming to api
@@ -298,6 +298,87 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         print "get_ipams(): " + pformat(ipams_dicts) + "\n"
         return ipams_dicts
     #end get_ipams
+
+    # Policy API handlers
+    def create_policy(self, context, policy):
+        """
+        Creates a new Policy, and assigns it
+        a symbolic name.
+        """
+        LOG.debug("Plugin.create_policy() called")
+
+        policy_info = self._cfgdb.policy_create(policy['policy'])
+
+        # TODO add this in extension
+        ##verify transformation is conforming to api
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        policy_dict = policy_info['q_api_data']
+        policy_dict.update(policy_info['q_extra_data'])
+
+        print "create_policy(): " + pformat(policy_dict) + "\n"
+        return policy_dict
+    #end create_policy
+
+    def get_policy(self, context, id, fields=None):
+        LOG.debug("Plugin.get_policy() called")
+
+        policy_info = self._cfgdb.policy_read(id)
+
+        # TODO add this in extension
+        ## verify transformation is conforming to api
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        policy_dict = policy_info['q_api_data']
+        policy_dict.update(policy_info['q_extra_data'])
+
+        print "get_policy(): " + pformat(policy_dict) + "\n"
+        return policy_dict
+    #end get_policy
+
+    def update_policy(self, context, id, policy):
+        """
+        Updates the attributes of a particular Policy.
+        """
+        LOG.debug("Plugin.update_policy() called")
+        policy_info = self._cfgdb.policy_update(id, policy)
+
+        # TODO add this in extension
+        ## verify transformation is conforming to api
+        #ipam_dict = self._make_ipam_dict(ipam_info)
+        policy_dict = policy_info['q_api_data']
+        policy_dict.update(policy_info['q_extra_data'])
+
+        print "update_policy(): " + pformat(policy_dict) + "\n"
+        return policy_dict
+    #end update_policy
+
+    def delete_policy(self, context, policy_id):
+        """
+        Deletes the Policy with the specified identifier
+        """
+        LOG.debug("Plugin.delete_policy() called")
+
+        self._cfgdb.policy_delete(policy_id)
+
+        print "delete_policy(): " + pformat(policy_id) + "\n"
+    #end delete_policy
+
+    def get_policys(self, context, filters=None, fields=None):
+        LOG.debug("Plugin.get_policys() called")
+
+        policys_info = self._cfgdb.policy_list(filters)
+
+        policys_dicts = []
+        for policy_info in policys_info:
+            # TODO add this in extension
+            # verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            policy_dict = policy_info['q_api_data']
+            policy_dict.update(policy_info['q_extra_data'])
+            policys_dicts.append(policy_dict)
+
+        print "get_policys(): " + pformat(policys_dicts) + "\n"
+        return policys_dicts
+    #end get_policys
 
     # Port API handlers
     def create_port(self, context, port):
@@ -414,24 +495,3 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         LOG.debug("Plugin.create_security_group() called")
         rsp = self._cfgdb.security_group_create(request)
         return rsp
-
-    def create_policy(self, request, tenant_id, sg_id, pol_name, pol_descr, **kwargs):
-        """
-        Creates a new Policy.
-        """
-        LOG.debug("Plugin.create_policy() called")
-        rsp = self._cfgdb.policy_create(request)
-        return rsp
-
-    def create_policy_entry_list(self, request, tenant_id, pol_id, pe_list):
-        """
-        Creates a new Policy Entry List.
-        """
-        LOG.debug("Plugin.create_policy_entry_list() called")
-        self._cfgdb.policy_entry_list_create(request, tenant_id, pol_id,
-	                                                  pe_list)
-
-    def get_policy_entry(self, pe_id):
-        LOG.debug("Plugin.get_policy_entry() called")
-        policy_entry = self._cfgdb.policy_entry_get(pe_id)
-	return policy_entry

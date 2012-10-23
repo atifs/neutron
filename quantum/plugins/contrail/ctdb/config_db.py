@@ -14,11 +14,18 @@ import uuid
 from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
+from quantum.api.v2 import attributes as attr
 from vnc_api import *
 
 _DEFAULT_HEADERS = {
                     'Content-type': 'application/json; charset="UTF-8"',
                    }
+
+# TODO find if there is a common definition
+CREATE = 1
+READ   = 2
+UPDATE = 3
+DELETE = 4
 
 class DBInterface(object):
     """
@@ -116,18 +123,29 @@ class DBInterface(object):
         return resp_dict['network-ipams']
     #end _ipam_list_project
 
+    def _policy_list_project(self, project_id):
+        # TODO resolve project_id vs project_name
+        project_obj = Project(project_id)
+        resp_str = self._vnc_lib.network_policys_list(project_obj)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['network-policys']
+    #end _policy_list_project
+
     # find port ids on a given network
     def _port_list_network(self, network_id):
         ret_list = []
 
         net_obj = self._vnc_lib.virtual_network_read(id = network_id)
-        for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
-            port_fq_name = port_back_ref['to']
-            port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
-            port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
-            ret_info = {}
-            ret_info['id'] = port_obj.uuid
-            ret_list.append(ret_info)
+        port_back_refs = net_obj.get_virtual_machine_interface_back_refs()
+        if port_back_refs:
+            for port_back_ref in port_back_refs:
+                port_fq_name = port_back_ref['to']
+                port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
+                port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
+                ret_info = {}
+                ret_info['id'] = port_obj.uuid
+                ret_list.append(ret_info)
 
         return ret_list
     #end _port_list_network
@@ -195,25 +213,49 @@ class DBInterface(object):
     #end _subnet_vnc_get_key
 
     def _ip_address_to_subnet_id(self, ip_addr, net_obj):
-        for ipam_ref in net_obj.get_network_ipam_refs():
-            subnets = ipam_ref['attr'].get_subnet()
-            for subnet_vnc in subnets:
-                cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
-                                 subnet_vnc.get_ip_prefix_len())
-                if IPAddress(ip_addr) in IPSet([cidr]):
-                    subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
-                    subnet_id = self._subnet_vnc_read_mapping(key = subnet_key)
-                    return subnet_id
+        ipam_refs = net_obj.get_network_ipam_refs()
+        if ipam_refs:
+            for ipam_ref in ipam_refs:
+                subnets = ipam_ref['attr'].get_subnet()
+                for subnet_vnc in subnets:
+                    cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
+                                     subnet_vnc.get_ip_prefix_len())
+                    if IPAddress(ip_addr) in IPSet([cidr]):
+                        subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
+                        subnet_id = self._subnet_vnc_read_mapping(key = subnet_key)
+                        return subnet_id
 
         return None
     #end _ip_address_to_subnet_id
 
     # Conversion routines between VNC and Quantum objects
-    def _network_quantum_to_vnc(self, network_q):
-        net_name = network_q['name']
-        project_id = network_q['tenant_id']
-        project_obj = Project(project_id)
-        net_obj = VirtualNetwork(net_name, project_obj)
+    def _network_quantum_to_vnc(self, network_q, oper):
+        net_name = network_q.get('name', None)
+        project_name = network_q.get('tenant_id', None)
+        if oper == CREATE:
+            project_obj = Project(project_name)
+            net_obj = VirtualNetwork(net_name, project_obj)
+        else: # READ/UPDATE/DELETE
+            net_obj = self._vnc_lib.virtual_network_read(id = network_q['id'])
+
+        if network_q['contrail:policys'] == '':
+            policy_fq_names = None
+        else:
+            policy_fq_names = network_q['contrail:policys']
+
+        if policy_fq_names: 
+            # reset and add with newly specified list
+            net_obj.set_network_policy_list([], [])
+            seq = 0
+            for p_fq_name in policy_fq_names:
+                domain_name, project_name, policy_name = p_fq_name
+
+                domain_obj = Domain(domain_name)
+                project_obj = Project(project_name, domain_obj)
+                policy_obj = NetworkPolicy(policy_name, project_obj)
+
+                net_obj.add_network_policy(policy_obj, SequenceType(seq, 0))
+                seq = seq + 1
 
         return net_obj
     #end _network_quantum_to_vnc
@@ -224,6 +266,7 @@ class DBInterface(object):
 
         net_q_dict['id'] = net_obj.uuid
         net_q_dict['name'] = net_obj.name
+        extra_dict['contrail:fq_name'] = net_obj.get_fq_name()
         # TODO resolve name/id for projects
         net_q_dict['tenant_id'] = net_obj.parent_name
         # TODO fix-me
@@ -231,37 +274,42 @@ class DBInterface(object):
         net_q_dict['shared'] = False
         net_q_dict['status'] = constants.NET_STATUS_ACTIVE
 
-        net_q_dict['ports'] = []
-        for port_back_ref in net_obj.get_virtual_machine_interface_back_refs():
-            fq_name = port_back_ref['to']
-            port_obj = self._vnc_lib.virtual_machine_interface_read(id = fq_name[-1])
+        port_back_refs = net_obj.get_virtual_machine_interface_back_refs()
+        if port_back_refs:
+            net_q_dict['ports'] = []
+            for port_back_ref in port_back_refs:
+                fq_name = port_back_ref['to']
+                port_obj = self._vnc_lib.virtual_machine_interface_read(id = fq_name[-1])
 
-            port_info = self._port_vnc_to_quantum(port_obj)
-            port_dict = port_info['q_api_data']
-            port_dict.update(port_info['q_extra_data'])
+                port_info = self._port_vnc_to_quantum(port_obj)
+                port_dict = port_info['q_api_data']
+                port_dict.update(port_info['q_extra_data'])
 
-            net_q_dict['ports'].append(port_dict)
+                net_q_dict['ports'].append(port_dict)
 
+        ipam_refs = net_obj.get_network_ipam_refs()
         net_q_dict['subnets'] = []
-        extra_dict['contrail:subnet_ipam'] = []
-        for ipam_ref in net_obj.get_network_ipam_refs():
-            subnets = ipam_ref['attr'].get_subnet()
-            for subnet in subnets:
-                sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
-                                                      ipam_ref['to'])
-                sn_dict = sn_info['q_api_data']
-                sn_dict.update(sn_info['q_extra_data'])
-                net_q_dict['subnets'].append(sn_dict)
-                sn_ipam = {}
-                sn_ipam['subnet_cidr'] = sn_dict['cidr']
-                sn_ipam['ipam_fq_name'] = ipam_ref['to']
-                extra_dict['contrail:subnet_ipam'].append(sn_ipam)
+        if ipam_refs:
+            extra_dict['contrail:subnet_ipam'] = []
+            for ipam_ref in ipam_refs:
+                subnets = ipam_ref['attr'].get_subnet()
+                for subnet in subnets:
+                    sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                                                          ipam_ref['to'])
+                    sn_dict = sn_info['q_api_data']
+                    sn_dict.update(sn_info['q_extra_data'])
+                    net_q_dict['subnets'].append(sn_dict)
+                    sn_ipam = {}
+                    sn_ipam['subnet_cidr'] = sn_dict['cidr']
+                    sn_ipam['ipam_fq_name'] = ipam_ref['to']
+                    extra_dict['contrail:subnet_ipam'].append(sn_ipam)
 
         # TODO determine right values
         extra_dict['contrail:instance_count'] = 0
         net_policy_refs = net_obj.get_network_policy_refs()
         if net_policy_refs:
-            extra_dict['contrail:policy'] = net_policy_refs[0]['to']
+            extra_dict['contrail:policys'] = \
+                        [np_ref['to'] for np_ref in net_policy_refs]
 
         return {'q_api_data': net_q_dict,
                 'q_extra_data': extra_dict}
@@ -318,49 +366,77 @@ class DBInterface(object):
 
         extra_dict = {}
         extra_dict['contrail:instance_count'] = 0
-        extra_dict['contrail:ipam_fq_name'] = ':'.join(ipam_fq_name)
+        extra_dict['contrail:ipam_fq_name'] = ipam_fq_name
 
         return {'q_api_data': sn_q_dict,
                 'q_extra_data': extra_dict}
     #end _subnet_vnc_to_quantum
 
-    def _ipam_quantum_to_vnc(self, ipam_q):
-        ipam_name = ipam_q['name']
-        project_id = ipam_q['tenant_id']
-        project_obj = Project(project_id)
+    def _ipam_quantum_to_vnc(self, ipam_q, oper):
+        ipam_name = ipam_q.get('name', None)
+        project_name = ipam_q.get('tenant_id', None)
+        if oper == CREATE:
+            project_obj = Project(project_name)
+            ipam_obj = NetworkIpam(ipam_name, project_obj)
+        else: # READ/UPDATE/DELETE
+            ipam_obj = self._vnc_lib.network_ipam_read(id = ipam_q['id'])
 
-        options_obj = DhcpOptionsListType()
+        options_vnc = DhcpOptionsListType()
         for opt_q in ipam_q['mgmt'].get('options', []):
-            options_obj.add_dhcp_option(DhcpOptionType(opt_q['option'],
+            options_vnc.add_dhcp_option(DhcpOptionType(opt_q['option'],
                                                        opt_q['value']))
-        ipam_mgmt_obj = IpamType.factory(ipam_method = ipam_q['mgmt']['method'],
-                                         dhcp_option_list = options_obj)
+        #ipam_mgmt_vnc = IpamType.factory(ipam_method = ipam_q['mgmt']['method'],
+        #                                 dhcp_option_list = options_vnc)
 
-        ipam_obj = NetworkIpam(ipam_name, project_obj, ipam_mgmt_obj)
+        ipam_obj.set_network_ipam_mgmt(IpamType.factory(**ipam_q['mgmt']))
 
         return ipam_obj
     #end _ipam_quantum_to_vnc
 
     def _ipam_vnc_to_quantum(self, ipam_obj):
-        ipam_q_dict = {}
-        ipam_q_dict['id'] = ipam_obj.uuid
-        ipam_q_dict['name'] = ipam_obj.name
-        ipam_q_dict['tenant_id'] = ipam_obj.parent_name
-        ipam_q_dict['mgmt'] = {}
-        ipam_mgmt_obj = ipam_obj.get_network_ipam_mgmt()
-        if ipam_mgmt_obj:
-            ipam_q_dict['mgmt']['method'] = ipam_mgmt_obj.get_ipam_method()
-            ipam_q_dict['mgmt']['options'] = []
-            options_obj = ipam_mgmt_obj.get_dhcp_option_list()
-            for opt_obj in options_obj.get_dhcp_option():
-                opt_q = {}
-                opt_q['option'] = opt_obj.get_dhcp_option_name()
-                opt_q['value'] = opt_obj.get_dhcp_option_value()
-                ipam_q_dict['mgmt']['options'].append(opt_q)
+        ipam_q_dict = json.loads(json.dumps(ipam_obj,
+                                     default=lambda o:
+                                     {k:v for k, v in o.__dict__.iteritems()}))
+
+        # replace field names
+        ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
+        ipam_q_dict['tenant_id'] = ipam_q_dict.pop('parent_name')
+        ipam_q_dict['fq_name'] = ipam_q_dict.pop('_fq_name')
+        ipam_q_dict['mgmt'] = ipam_q_dict.pop('_network_ipam_mgmt')
 
         return {'q_api_data': ipam_q_dict,
                 'q_extra_data': {}}
     #end _ipam_vnc_to_quantum
+
+    def _policy_quantum_to_vnc(self, policy_q, oper):
+        policy_name = policy_q.get('name', None)
+        project_name = policy_q.get('tenant_id', None)
+        if oper == CREATE:
+            project_obj = Project(project_name)
+            policy_obj = NetworkPolicy(policy_name, project_obj)
+        else: # READ/UPDATE/DELETE
+            policy_obj = self._vnc_lib.network_policy_read(id = policy_q['id'])
+
+        policy_obj.set_network_policy_entries(
+                       PolicyEntriesType.factory(**policy_q['entries']))
+
+        return policy_obj
+    #end _policy_quantum_to_vnc
+
+    def _policy_vnc_to_quantum(self, policy_obj):
+        policy_q_dict = json.loads(json.dumps(policy_obj,
+                                     default=lambda o:
+                                     {k:v for k, v in o.__dict__.iteritems()}))
+
+        # replace field names
+        policy_q_dict['id'] = policy_q_dict.pop('uuid')
+        policy_q_dict['fq_name'] = policy_q_dict.pop('_fq_name')
+        policy_q_dict['tenant_id'] = policy_q_dict.pop('parent_name')
+        policy_q_dict['entries'] = policy_q_dict.pop('_network_policy_entries')
+
+        return {'q_api_data': policy_q_dict,
+                'q_extra_data': {}}
+    #end _policy_vnc_to_quantum
 
     def _port_quantum_to_vnc(self, port_q, net_obj = None):
         if not net_obj:
@@ -381,6 +457,7 @@ class DBInterface(object):
         port_q_dict['name'] = port_obj.uuid
         port_q_dict['id'] = port_obj.uuid
 
+        # TODO can port belong to more than one VN?
         net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
         # TODO read obj directly from fq_name once lib supports
         net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
@@ -392,20 +469,22 @@ class DBInterface(object):
         port_q_dict['mac_address'] = \
            port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
 
-        port_q_dict['fixed_ips'] = []
-        for ip_back_ref in port_obj.get_instance_ip_back_refs():
-            ip_fq_name = ip_back_ref['to']
-            ip_obj = self._vnc_lib.instance_ip_read(id = ip_fq_name[-1])
-            ip_addr = ip_obj.get_instance_ip_address()
+        ip_back_refs = port_obj.get_instance_ip_back_refs()
+        if ip_back_refs:
+            port_q_dict['fixed_ips'] = []
+            for ip_back_ref in ip_back_refs:
+                ip_fq_name = ip_back_ref['to']
+                ip_obj = self._vnc_lib.instance_ip_read(id = ip_fq_name[-1])
+                ip_addr = ip_obj.get_instance_ip_address()
 
-            ip_q_dict = {}
-            ip_q_dict['port_id'] = port_obj.uuid
-            ip_q_dict['ip_address'] = ip_addr
-            ip_q_dict['subnet_id'] = self._ip_address_to_subnet_id(ip_addr,
-                                                                   net_obj)
-            ip_q_dict['net_id'] = net_id
+                ip_q_dict = {}
+                ip_q_dict['port_id'] = port_obj.uuid
+                ip_q_dict['ip_address'] = ip_addr
+                ip_q_dict['subnet_id'] = self._ip_address_to_subnet_id(ip_addr,
+                                                                       net_obj)
+                ip_q_dict['net_id'] = net_id
 
-            port_q_dict['fixed_ips'].append(ip_q_dict)
+                port_q_dict['fixed_ips'].append(ip_q_dict)
 
         port_q_dict['admin_state_up'] = True
         port_q_dict['status'] = constants.PORT_STATUS_ACTIVE
@@ -423,7 +502,7 @@ class DBInterface(object):
         # from keystone on startup
         self._ensure_project_exists(network_q['tenant_id'])
        
-        net_obj = self._network_quantum_to_vnc(network_q)
+        net_obj = self._network_quantum_to_vnc(network_q, CREATE)
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
 
         return self._network_vnc_to_quantum(net_obj)
@@ -435,8 +514,13 @@ class DBInterface(object):
         return self._network_vnc_to_quantum(net_obj)
     #end network_read
 
-    #def network_update(self, net_id, net_dict):
-    ##end network_update
+    def network_update(self, net_id, network_q):
+        network_q['id'] = net_id
+        net_obj = self._network_quantum_to_vnc(network_q, UPDATE)
+        self._vnc_lib.virtual_network_update(net_obj)
+
+        return self._network_vnc_to_quantum(net_obj)
+    #end network_update
 
     def network_delete(self, net_id):
         self._vnc_lib.virtual_network_delete(id = net_id)
@@ -477,11 +561,9 @@ class DBInterface(object):
         net_id = subnet_q['network_id']
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
 
-        if subnet_q['contrail:ipam_fq_name'] != '':
-            ipam_fq_name = subnet_q['contrail:ipam_fq_name'].split(':')
-            domain_name = ipam_fq_name[0]
-            project_name = ipam_fq_name[1]
-            ipam_name = ipam_fq_name[2]
+        ipam_fq_name = subnet_q['contrail:ipam_fq_name']
+        if ipam_fq_name != '':
+            domain_name, project_name, ipam_name = ipam_fq_name
 
             domain_obj = Domain(domain_name)
             project_obj = Project(project_name, domain_obj)
@@ -495,10 +577,12 @@ class DBInterface(object):
 
         # Locate list of subnets to which this subnet has to be appended
         net_ipam_ref = None
-        for ipam_ref in net_obj.get_network_ipam_refs():
-            if ipam_ref['to'] == ipam_fq_name:
-                net_ipam_ref = ipam_ref
-                break
+        ipam_refs = net_obj.get_network_ipam_refs()
+        if ipam_refs:
+            for ipam_ref in ipam_refs:
+                if ipam_ref['to'] == ipam_fq_name:
+                    net_ipam_ref = ipam_ref
+                    break
 
         if not net_ipam_ref:
             # First link from net to this ipam
@@ -530,20 +614,22 @@ class DBInterface(object):
 
         net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
         net_obj = self._network_read(net_id)
-        for ipam_ref in net_obj.get_network_ipam_refs():
-            subnets = ipam_ref['attr'].get_subnet()
-            for subnet_vnc in subnets:
-                if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
-                    return self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
-                                                       ipam_ref['to'])
+        ipam_refs = net_obj.get_network_ipam_refs()
+        if ipam_refs:
+            for ipam_ref in ipam_refs:
+                subnets = ipam_ref['attr'].get_subnet()
+                for subnet_vnc in subnets:
+                    if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
+                        return self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
+                                                           ipam_ref['to'])
 
         return {}
     #end subnet_read
 
-    def subnet_update(self, subnet_id, subnet_q):
-        # TODO implement this
-        return subnet_q
-    #end subnet_update
+    #def subnet_update(self, subnet_id, subnet_q):
+    #    # TODO implement this
+    #    return subnet_q
+    ##end subnet_update
 
     def subnet_delete(self, subnet_id):
         subnet_key = self._subnet_vnc_read_mapping(id = subnet_id)
@@ -552,16 +638,18 @@ class DBInterface(object):
 
         net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
         net_obj = self._network_read(net_id)
-        for ipam_ref in net_obj.get_network_ipam_refs():
-            orig_subnets = ipam_ref['attr'].get_subnet()
-            new_subnets = [subnet for subnet in orig_subnets \
-                           if self._subnet_vnc_get_key(subnet, net_obj) != subnet_key]
-            if len(orig_subnets) != len(new_subnets):
-                # matched subnet to be deleted
-                ipam_ref['attr'].set_subnet(new_subnets)
-                self._vnc_lib.virtual_network_update(net_obj)
-                self._subnet_vnc_delete_mapping(subnet_id, subnet_key)
-                return
+        ipam_refs = net_obj.get_network_ipam_refs()
+        if ipam_refs:
+            for ipam_ref in ipam_refs:
+                orig_subnets = ipam_ref['attr'].get_subnet()
+                new_subnets = [subnet for subnet in orig_subnets \
+                               if self._subnet_vnc_get_key(subnet, net_obj) != subnet_key]
+                if len(orig_subnets) != len(new_subnets):
+                    # matched subnet to be deleted
+                    ipam_ref['attr'].set_subnet(new_subnets)
+                    self._vnc_lib.virtual_network_update(net_obj)
+                    self._subnet_vnc_delete_mapping(subnet_id, subnet_key)
+                    return
     #end subnet_delete
 
     def subnets_list(self, filters = None):
@@ -571,26 +659,28 @@ class DBInterface(object):
         nets_info = self.network_list()
         for n_info in nets_info:
             net_obj = self._network_read(n_info['q_api_data']['id'])
-            for ipam_ref in net_obj.get_network_ipam_refs():
-                subnets = ipam_ref['attr'].get_subnet()
-                for subnet in subnets:
-                    sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
-                                                          ipam_ref['to'])
-                    sn_id = sn_info['q_api_data']['id']
-                    sn_proj_id = sn_info['q_api_data']['tenant_id']
-                    sn_net_id = sn_info['q_api_data']['network_id']
+            ipam_refs = net_obj.get_network_ipam_refs()
+            if ipam_refs:
+                for ipam_ref in ipam_refs:
+                    subnets = ipam_ref['attr'].get_subnet()
+                    for subnet in subnets:
+                        sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                                                              ipam_ref['to'])
+                        sn_id = sn_info['q_api_data']['id']
+                        sn_proj_id = sn_info['q_api_data']['tenant_id']
+                        sn_net_id = sn_info['q_api_data']['network_id']
 
-                    if filters:
-                        if not self._filters_is_present(filters, 'id', sn_id):
-                            continue
-                        if not self._filters_is_present(filters, 'tenant_id',
-                                                        sn_proj_id):
-                            continue
-                        if not self._filters_is_present(filters, 'network_id',
-                                                        sn_net_id):
-                            continue
+                        if filters:
+                            if not self._filters_is_present(filters, 'id', sn_id):
+                                continue
+                            if not self._filters_is_present(filters, 'tenant_id',
+                                                            sn_proj_id):
+                                continue
+                            if not self._filters_is_present(filters, 'network_id',
+                                                            sn_net_id):
+                                continue
 
-                    ret_subnets.append(sn_info)
+                        ret_subnets.append(sn_info)
 
         return ret_subnets
     #end subnets_list
@@ -601,7 +691,7 @@ class DBInterface(object):
         # from keystone on startup
         self._ensure_project_exists(ipam_q['tenant_id'])
 
-        ipam_obj = self._ipam_quantum_to_vnc(ipam_q)
+        ipam_obj = self._ipam_quantum_to_vnc(ipam_q, CREATE)
         ipam_uuid = self._vnc_lib.network_ipam_create(ipam_obj)
 
         return self._ipam_vnc_to_quantum(ipam_obj)
@@ -613,8 +703,14 @@ class DBInterface(object):
         return self._ipam_vnc_to_quantum(ipam_obj)
     #end ipam_read
 
-    #def ipam_update(self, ipam_id, ipam_q):
-    ##end ipam_update
+    def ipam_update(self, ipam_id, ipam):
+        ipam_q = ipam['ipam']
+        ipam_q['id'] = ipam_id
+        ipam_obj = self._ipam_quantum_to_vnc(ipam_q, UPDATE)
+        self._vnc_lib.network_ipam_update(ipam_obj)
+
+        return self._ipam_vnc_to_quantum(ipam_obj)
+    #end ipam_update
 
     #def ipam_delete(self, ipam_id):
     ##end ipam_delete
@@ -648,6 +744,66 @@ class DBInterface(object):
 
         return ret_list
     #end ipam_list
+
+    # policy api handlers
+    def policy_create(self, policy_q):
+        # TODO remove below once api-server can read and create projects
+        # from keystone on startup
+        self._ensure_project_exists(policy_q['tenant_id'])
+
+        policy_obj = self._policy_quantum_to_vnc(policy_q, CREATE)
+        policy_uuid = self._vnc_lib.network_policy_create(policy_obj)
+
+        return self._policy_vnc_to_quantum(policy_obj)
+    #end policy_create
+
+    def policy_read(self, policy_id):
+        policy_obj = self._vnc_lib.network_policy_read(id = policy_id)
+
+        return self._policy_vnc_to_quantum(policy_obj)
+    #end policy_read
+
+    def policy_update(self, policy_id, policy):
+        policy_q = policy['policy']
+        policy_q['id'] = policy_id
+        policy_obj = self._policy_quantum_to_vnc(policy_q, UPDATE)
+        self._vnc_lib.network_policy_update(policy_obj)
+
+        return self._policy_vnc_to_quantum(policy_obj)
+    #end policy_update
+
+    #def policy_delete(self, policy_id):
+    ##end policy_delete
+
+    # TODO request based on filter contents
+    def policy_list(self, filters = None):
+        ret_list = []
+
+        # collect phase
+        all_policys = [] # all policys in all projects
+        if filters and filters.has_key('tenant_id'):
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_policys = self._policy_list_project(p_id)
+                all_policys.append(project_policys)
+        else: # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                project_policys = self._policy_list_project(project['name'])
+                all_policys.append(project_policys)
+
+        # prune phase
+        for project_policys in all_policys:
+            for proj_policy in project_policys:
+                # TODO implement same for name specified in filter
+                proj_policy_id = proj_policy['uuid']
+                if not self._filters_is_present(filters, 'id', proj_policy_id):
+                    continue
+                policy_info = self.policy_read(proj_policy['uuid'])
+                ret_list.append(policy_info)
+
+        return ret_list
+    #end policy_list
 
     # port api handlers
     def port_create(self, port_q):
