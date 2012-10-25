@@ -74,6 +74,8 @@ class DBInterface(object):
         except NoIdError:
             # project doesn't exist, create it
             self._vnc_lib.project_create(project_obj)
+
+        return project_obj
     #end _ensure_project_exists
 
     def _ensure_vrouter_exists(self, vrouter_id):
@@ -81,17 +83,25 @@ class DBInterface(object):
         vrouter_obj = VirtualRouter(vrouter_name)
         try:
             id = self._vnc_lib.fq_name_to_id(vrouter_obj.get_fq_name())
+            vrouter_obj = self._vnc_lib.virtual_router_read(id = id)
         except NoIdError: # vrouter/server doesn't exist, create it
             self._vnc_lib.virtual_router_create(vrouter_obj)
+
+        return vrouter_obj
     #end _ensure_vrouter_exists
 
-    def _ensure_instance_exists(self, instance_id):
+    def _ensure_instance_exists(self, instance_id, vrouter_obj):
         instance_name = instance_id
         instance_obj = VirtualMachine(instance_name)
         try:
             id = self._vnc_lib.fq_name_to_id(instance_obj.get_fq_name())
+            instance_obj = self._vnc_lib.virtual_machine_read(id = id)
         except NoIdError: # instance doesn't exist, create it
             self._vnc_lib.virtual_machine_create(instance_obj)
+            vrouter_obj.add_virtual_machine(instance_obj)
+            self._vnc_lib.virtual_router_update(vrouter_obj)
+
+        return instance_obj
     #end _ensure_instance_exists
 
     # find projects on a given domain
@@ -811,8 +821,8 @@ class DBInterface(object):
         net_id = port_q['network_id']
         net_obj = self._network_read(net_id)
 
-        self._ensure_vrouter_exists(port_q['compute_node_id'])
-        self._ensure_instance_exists(port_q['device_id'])
+        vrouter_obj = self._ensure_vrouter_exists(port_q['compute_node_id'])
+        self._ensure_instance_exists(port_q['device_id'], vrouter_obj)
 
 
         # initialize port object
