@@ -722,8 +722,9 @@ class DBInterface(object):
         return self._ipam_vnc_to_quantum(ipam_obj)
     #end ipam_update
 
-    #def ipam_delete(self, ipam_id):
-    ##end ipam_delete
+    def ipam_delete(self, ipam_id):
+	self._vnc_lib.network_ipam_delete(id = ipam_obj)
+    #end ipam_delete
 
     # TODO request based on filter contents
     def ipam_list(self, filters = None):
