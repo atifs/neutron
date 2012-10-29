@@ -14,6 +14,7 @@ import uuid
 from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
+from quantum.common import exceptions
 from quantum.api.v2 import attributes as attr
 from vnc_api import *
 
@@ -244,14 +245,23 @@ class DBInterface(object):
         project_name = network_q.get('tenant_id', None)
         if oper == CREATE:
             project_obj = Project(project_name)
-            net_obj = VirtualNetwork(net_name, project_obj)
+            id_perms = IdPermsType(enable = True)
+            net_obj = VirtualNetwork(net_name, project_obj, id_perms)
         else: # READ/UPDATE/DELETE
             net_obj = self._vnc_lib.virtual_network_read(id = network_q['id'])
 
-        if network_q['contrail:policys'] == '':
-            policy_fq_names = None
+        id_perms = net_obj.get_id_perms()
+        if network_q['admin_state_up']:
+            id_perms.enable = True
         else:
+            id_perms.enable = False
+        net_obj.set_id_perms(id_perms)
+
+        if (network_q.has_key('contrail:policys') and
+            network_q['contrail:policys'] != ''):
             policy_fq_names = network_q['contrail:policys']
+        else:
+            policy_fq_names = None
 
         if policy_fq_names: 
             # reset and add with newly specified list
@@ -279,8 +289,7 @@ class DBInterface(object):
         extra_dict['contrail:fq_name'] = net_obj.get_fq_name()
         # TODO resolve name/id for projects
         net_q_dict['tenant_id'] = net_obj.parent_name
-        # TODO fix-me
-        net_q_dict['admin_state_up'] = True
+        net_q_dict['admin_state_up'] = net_obj.get_id_perms().enable
         net_q_dict['shared'] = False
         net_q_dict['status'] = constants.NET_STATUS_ACTIVE
 
@@ -443,6 +452,8 @@ class DBInterface(object):
         policy_q_dict['fq_name'] = policy_q_dict.pop('_fq_name')
         policy_q_dict['tenant_id'] = policy_q_dict.pop('parent_name')
         policy_q_dict['entries'] = policy_q_dict.pop('_network_policy_entries')
+        net_backrefs = policy_q_dict.pop('_virtual_network_back_refs')
+        policy_q_dict['nets_using'] = []
 
         return {'q_api_data': policy_q_dict,
                 'q_extra_data': {}}
@@ -519,7 +530,10 @@ class DBInterface(object):
     #end network_create
 
     def network_read(self, net_uuid):
-        net_obj = self._network_read(net_uuid)
+        try:
+            net_obj = self._network_read(net_uuid)
+        except NoIdError:
+            raise exceptions.NetworkNotFound(net_id = net_uuid)
 
         return self._network_vnc_to_quantum(net_obj)
     #end network_read
