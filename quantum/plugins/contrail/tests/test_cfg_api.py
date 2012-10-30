@@ -23,12 +23,14 @@ from quantumclient.quantum import client
 from quantumclient.client import HTTPClient
 from quantumclient.common import exceptions
 
+CASS_SVR_IP = '127.0.0.1'
+CASS_SVR_PORT = '9160'
+ZK_SVR_IP = '127.0.0.1'
+ZK_SVR_PORT = '2181'
 IFMAP_SVR_IP = '127.0.0.1'
 IFMAP_SVR_PORT = '8443'
 IFMAP_SVR_USER = 'test'
 IFMAP_SVR_PASSWD = 'test'
-CASS_SVR_IP = '127.0.0.1'
-CASS_SVR_PORT = '9160'
 API_SVR_IP = '127.0.0.1'
 API_SVR_PORT = '8082'
 QUANTUM_SVR_IP = '127.0.0.1'
@@ -36,6 +38,7 @@ QUANTUM_SVR_PORT = '9595'
 
 IFMAP_SVR_LOC='/home/contrail/irond-dist'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
+SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
 
 class CRUDTestCase(unittest.TestCase):
     def setUp(self):
@@ -88,9 +91,21 @@ class CRUDTestCase(unittest.TestCase):
 
     def test_subnet(self):
         # Create; Verify with show + list 
-        net_obj = VirtualNetwork()
-        net_rsp = self._quantum.create_network({'network': {'name': 'vn1'}})
-        net_id = net_rsp['network']['id']
+        param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
+        nets = self._quantum.list_networks(**param)['networks']
+        self.assertEqual(len(nets), 1)
+        net_id = nets[0]['id']
+
+        ipam_fq_name = NetworkIpam().get_fq_name()
+
+        cidr = u'1.1.1.0/24'
+        subnet_req = {'network_id': net_id,
+                      'cidr': cidr,
+                      'ip_version': 4,
+                      'contrail:ipam_fq_name': ipam_fq_name}
+        subnet_rsp = self._quantum.create_subnet({'subnet': subnet_req})
+        subnet_cidr = subnet_rsp['subnet']['cidr']
+        self.assertEqual(subnet_cidr, cidr)
     #end test_subnet
 
 #end class CRUDTestCase
@@ -105,6 +120,7 @@ class TestBench(Service):
         self.spawn(self.launch_ifmap_server)
         self.spawn(self.launch_api_server)
         self.spawn(self.launch_quantum_plugin)
+        self.spawn(self.launch_schema_transformer)
         self.spawn(self.launch_unit_tests)
     #end do_start
 
@@ -120,12 +136,14 @@ class TestBench(Service):
     #end do_stop
 
     def launch_ifmap_server(self):
+        self._ensure_port_not_listened(IFMAP_SVR_IP, IFMAP_SVR_PORT)
         maps = subprocess.Popen(['java', '-jar', 'build/irond.jar'],
                                 cwd=IFMAP_SVR_LOC) 
         self._ifmap_server = maps
     #end launch_ifmap_server
 
     def launch_api_server(self):
+        self._ensure_port_not_listened(API_SVR_IP, API_SVR_PORT)
         # Wait for IFMAP server to be running before launching api server
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
@@ -139,6 +157,7 @@ class TestBench(Service):
     #end launch_api_server
 
     def launch_quantum_plugin(self):
+        self._ensure_port_not_listened(QUANTUM_SVR_IP, QUANTUM_SVR_PORT)
         # Wait for API server to be running before launching Q plugin
         self._block_till_port_listened('api-server', API_SVR_IP, API_SVR_PORT)
 
@@ -147,6 +166,18 @@ class TestBench(Service):
                                            '--config-file=contrail_plugin.ini'])
         self._quantum_server = quantum_server
     #end launch_quantum_plugin
+
+    def launch_schema_transformer(self):
+        # Wait for API server to be running before launching schema tranformer
+        self._block_till_port_listened('api-server', API_SVR_IP, API_SVR_PORT)
+
+        schema_transformer = subprocess.Popen(['python', 'to_bgp.py',
+                                               IFMAP_SVR_IP, IFMAP_SVR_PORT,
+                                               IFMAP_SVR_USER, IFMAP_SVR_PASSWD,
+                                               ZK_SVR_IP, ZK_SVR_PORT],
+                                              cwd = SCHEMA_TRANSFORMER_LOC)
+        self._schema_transformer = schema_transformer
+    #end launch_schema_transformer
 
     def launch_unit_tests(self):
         self._block_till_port_listened('quantum-server', QUANTUM_SVR_IP,
@@ -158,6 +189,18 @@ class TestBench(Service):
         #unittest.main(defaultTest=all_tests)
         unittest.TextTestRunner(verbosity=2).run(suite1)
     #end launch_unit_tests
+
+    def _ensure_port_not_listened(self, server_ip, server_port):
+        try:
+            s = socket.create_connection((server_ip, server_port))
+            s.close()
+            raise Exception("IP %s port %d already listened on" 
+                             %(server_ip, server_port))
+        except Exception as err:
+            if err.errno == errno.ECONNREFUSED:
+                return # all is well
+            import pdb; pdb.set_trace()
+    #end _ensure_port_not_listened
 
     def _block_till_port_listened(self, server_name, server_ip, server_port):
         svr_running = False

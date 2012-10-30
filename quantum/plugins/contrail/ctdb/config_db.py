@@ -186,7 +186,7 @@ class DBInterface(object):
                 idx = filters[key_name].index(match_value)
                 if (filters.has_key('shared') and
                     filters['shared'][idx] == True):
-                    return False # no shared-subnet support
+                    return False # no shared-resource support
             except ValueError: # not in requested list
                 return False
 
@@ -251,10 +251,9 @@ class DBInterface(object):
             net_obj = self._vnc_lib.virtual_network_read(id = network_q['id'])
 
         id_perms = net_obj.get_id_perms()
-        if network_q['admin_state_up']:
-            id_perms.enable = True
-        else:
-            id_perms.enable = False
+        if network_q.has_key('admin_state_up'):
+            id_perms.enable = network_q['admin_state_up']
+
         net_obj.set_id_perms(id_perms)
 
         if (network_q.has_key('contrail:policys') and
@@ -568,7 +567,8 @@ class DBInterface(object):
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                project_nets = self._network_list_project(project['name'])
+                proj_name = project['fq_name'][-1]
+                project_nets = self._network_list_project(proj_name)
                 all_nets.append(project_nets)
 
         # prune phase
@@ -577,6 +577,10 @@ class DBInterface(object):
                 # TODO implement same for name specified in filter
                 proj_net_id = proj_net['uuid']
                 if not self._filters_is_present(filters, 'id', proj_net_id):
+                    continue
+                proj_net_fq_name = unicode(proj_net['fq_name'])
+                if not self._filters_is_present(filters, 'contrail:fq_name',
+                                                proj_net_fq_name):
                     continue
                 net_info = self.network_read(proj_net['uuid'])
                 ret_list.append(net_info)
@@ -758,7 +762,8 @@ class DBInterface(object):
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                project_ipams = self._ipam_list_project(project['name'])
+                proj_name = project['fq_name'][-1]
+                project_ipams = self._ipam_list_project(proj_name)
                 all_ipams.append(project_ipams)
 
         # prune phase
@@ -819,7 +824,8 @@ class DBInterface(object):
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                project_policys = self._policy_list_project(project['name'])
+                proj_name = project['fq_name'][-1]
+                project_policys = self._policy_list_project(proj_name)
                 all_policys.append(project_policys)
 
         # prune phase
