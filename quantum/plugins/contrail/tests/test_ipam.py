@@ -41,7 +41,11 @@ ipam1_fq_name = ipam_rsp['ipam']['fq_name']
 ipam1_id = ipam_rsp['ipam']['id']
 
 print "Updating IPAM ipam1"
-ipam_req = {'mgmt': {'ipam_method': 'fixed'}}
+ipam_req = {'mgmt': {'ipam_method': 'fixed',
+                     'dhcp_option_list': {'dhcp_option': [{'dhcp_option_name': 'opt10',
+                                                           'dhcp_option_value': 'opt10_value'}]}
+                    }
+           }
 quantum.update_ipam(ipam1_id, {'ipam': ipam_req})
 
 print "Creating IPAM ipam2"

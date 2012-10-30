@@ -88,6 +88,7 @@ class CRUDTestCase(unittest.TestCase):
 
     def test_subnet(self):
         # Create; Verify with show + list 
+        net_obj = VirtualNetwork()
         net_rsp = self._quantum.create_network({'network': {'name': 'vn1'}})
         net_id = net_rsp['network']['id']
     #end test_subnet

@@ -452,8 +452,12 @@ class DBInterface(object):
         policy_q_dict['fq_name'] = policy_q_dict.pop('_fq_name')
         policy_q_dict['tenant_id'] = policy_q_dict.pop('parent_name')
         policy_q_dict['entries'] = policy_q_dict.pop('_network_policy_entries')
-        net_backrefs = policy_q_dict.pop('_virtual_network_back_refs')
-        policy_q_dict['nets_using'] = []
+        net_back_refs = policy_q_dict.pop('_virtual_network_back_refs')
+        if net_back_refs:
+            policy_q_dict['nets_using'] = []
+            for net_back_ref in net_back_refs:
+                net_fq_name = net_back_ref['to']
+                policy_q_dict['nets_using'].append(net_fq_name)
 
         return {'q_api_data': policy_q_dict,
                 'q_extra_data': {}}
@@ -797,8 +801,9 @@ class DBInterface(object):
         return self._policy_vnc_to_quantum(policy_obj)
     #end policy_update
 
-    #def policy_delete(self, policy_id):
-    ##end policy_delete
+    def policy_delete(self, policy_id):
+	self._vnc_lib.network_policy_delete(id = policy_id)
+    #end policy_delete
 
     # TODO request based on filter contents
     def policy_list(self, filters = None):
