@@ -71,7 +71,7 @@ class DBInterface(object):
     def _ensure_project_exists(self, project_id):
         project_obj = Project(project_id)
         try:
-            id = self._vnc_lib.fq_name_to_id(project_obj.get_fq_name())
+            id = self._vnc_lib.obj_to_id(project_obj)
         except NoIdError:
             # project doesn't exist, create it
             self._vnc_lib.project_create(project_obj)
@@ -83,7 +83,7 @@ class DBInterface(object):
         vrouter_name = "%s" %(vrouter_id)
         vrouter_obj = VirtualRouter(vrouter_name)
         try:
-            id = self._vnc_lib.fq_name_to_id(vrouter_obj.get_fq_name())
+            id = self._vnc_lib.obj_to_id(vrouter_obj)
             vrouter_obj = self._vnc_lib.virtual_router_read(id = id)
         except NoIdError: # vrouter/server doesn't exist, create it
             self._vnc_lib.virtual_router_create(vrouter_obj)
@@ -95,7 +95,7 @@ class DBInterface(object):
         instance_name = instance_id
         instance_obj = VirtualMachine(instance_name)
         try:
-            id = self._vnc_lib.fq_name_to_id(instance_obj.get_fq_name())
+            id = self._vnc_lib.obj_to_id(instance_obj)
             instance_obj = self._vnc_lib.virtual_machine_read(id = id)
         except NoIdError: # instance doesn't exist, create it
             self._vnc_lib.virtual_machine_create(instance_obj)
@@ -152,7 +152,8 @@ class DBInterface(object):
         if port_back_refs:
             for port_back_ref in port_back_refs:
                 port_fq_name = port_back_ref['to']
-                port_id = self._vnc_lib.fq_name_to_id(port_fq_name)
+                port_id = self._vnc_lib.fq_name_to_id('virtual-machine-interface',
+                                                      port_fq_name)
                 port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
                 ret_info = {}
                 ret_info['id'] = port_obj.uuid
@@ -400,13 +401,13 @@ class DBInterface(object):
             ipam_obj = self._vnc_lib.network_ipam_read(id = ipam_q['id'])
 
         options_vnc = DhcpOptionsListType()
-        for opt_q in ipam_q['mgmt'].get('options', []):
-            options_vnc.add_dhcp_option(DhcpOptionType(opt_q['option'],
-                                                       opt_q['value']))
-        #ipam_mgmt_vnc = IpamType.factory(ipam_method = ipam_q['mgmt']['method'],
-        #                                 dhcp_option_list = options_vnc)
-
-        ipam_obj.set_network_ipam_mgmt(IpamType.factory(**ipam_q['mgmt']))
+        if ipam_q['mgmt']:
+            #for opt_q in ipam_q['mgmt'].get('options', []):
+            #    options_vnc.add_dhcp_option(DhcpOptionType(opt_q['option'],
+            #                                               opt_q['value']))
+            #ipam_mgmt_vnc = IpamType.factory(ipam_method = ipam_q['mgmt']['method'],
+            #                                 dhcp_option_list = options_vnc)
+            ipam_obj.set_network_ipam_mgmt(IpamType.factory(**ipam_q['mgmt']))
 
         return ipam_obj
     #end _ipam_quantum_to_vnc
@@ -484,7 +485,7 @@ class DBInterface(object):
         # TODO can port belong to more than one VN?
         net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
         # TODO read obj directly from fq_name once lib supports
-        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_id = self._vnc_lib.fq_name_to_id('virtual-network', net_fq_name)
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
         port_q_dict['tenant_id'] = net_obj.parent_name
         port_q_dict['network_id'] = net_obj.uuid
@@ -644,7 +645,7 @@ class DBInterface(object):
         net_fq_name_str = subnet_key.split()[0]
         net_fq_name = net_fq_name_str.split(':')
 
-        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_id = self._vnc_lib.fq_name_to_id('virtual-network', net_fq_name)
         net_obj = self._network_read(net_id)
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:
@@ -668,7 +669,7 @@ class DBInterface(object):
         net_fq_name_str = subnet_key.split()[0]
         net_fq_name = net_fq_name_str.split(':')
 
-        net_id = self._vnc_lib.fq_name_to_id(net_fq_name)
+        net_id = self._vnc_lib.fq_name_to_id('virtual-network', net_fq_name)
         net_obj = self._network_read(net_id)
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:

@@ -65,8 +65,8 @@ subnet_rsp = quantum.create_subnet({'subnet': subnet_req})
 
 print "Creating policy pol1"
 np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
-                AddressType(virtual_network = ['local']), [PortType(-1, -1)], None,
-                AddressType(virtual_network = [net2_fqname_str]), [PortType(-1, -1)], None)]
+                [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
+                [AddressType(virtual_network = net2_fqname_str)], [PortType(-1, -1)], None)]
 pol_entries = PolicyEntriesType(np_rules)
 pol_entries_dict = \
     json.loads(json.dumps(pol_entries,
@@ -79,8 +79,8 @@ policy1_fq_name = policy_rsp['policy']['fq_name']
 
 print "Creating policy pol2"
 np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
-                AddressType(virtual_network = ['local']), [PortType(-1, -1)], None,
-                AddressType(virtual_network = [net1_fqname_str]), [PortType(-1, -1)], None)]
+                [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
+                [AddressType(virtual_network = net1_fqname_str)], [PortType(-1, -1)], None)]
 pol_entries = PolicyEntriesType(np_rules)
 pol_entries_dict = \
     json.loads(json.dumps(pol_entries,
@@ -99,4 +99,5 @@ print "Setting VN2 policy to [pol2]"
 net_req = {'contrail:policys': [policy2_fq_name]}
 net_rsp = quantum.update_network(net2_id, {'network': net_req})
 
+print pformat(quantum.list_policys()) + "\n"
 print pformat(quantum.show_network(net1_id)) + "\n"
