@@ -483,20 +483,27 @@ class DBInterface(object):
         port_q_dict['id'] = port_obj.uuid
 
         # TODO can port belong to more than one VN?
-        net_fq_name = port_obj.get_virtual_network_refs()[0]['to']
-        # TODO read obj directly from fq_name once lib supports
-        net_id = self._vnc_lib.fq_name_to_id('virtual-network', net_fq_name)
+        net_refs = port_obj.get_virtual_network_refs()
+        if net_refs:
+            net_fq_name = net_refs[0]['to']
+            net_id = self._vnc_lib.fq_name_to_id('virtual-network', net_fq_name)
+        else:
+            # TODO hack to force network_id on default port as quantum needs it
+            net_id = self._vnc_lib.obj_to_id(VirtualNetwork())
+
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
         port_q_dict['tenant_id'] = net_obj.parent_name
         port_q_dict['network_id'] = net_obj.uuid
 
         # TODO RHS below may need fixing
-        port_q_dict['mac_address'] = \
-           port_obj.get_virtual_machine_interface_mac_addresses().mac_address[0]
+        port_q_dict['mac_address'] = ''
+        mac_refs = port_obj.get_virtual_machine_interface_mac_addresses()
+        if mac_refs:
+            port_q_dict['mac_address'] = mac_refs.mac_address[0]
 
+        port_q_dict['fixed_ips'] = []
         ip_back_refs = port_obj.get_instance_ip_back_refs()
         if ip_back_refs:
-            port_q_dict['fixed_ips'] = []
             for ip_back_ref in ip_back_refs:
                 ip_fq_name = ip_back_ref['to']
                 ip_obj = self._vnc_lib.instance_ip_read(id = ip_fq_name[-1])
