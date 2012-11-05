@@ -603,7 +603,7 @@ class DBInterface(object):
             netipam_obj = NetworkIpam(ipam_name, project_obj)
         else: # link subnet with default ipam
             project_obj = Project(subnet_q['tenant_id'])
-            netipam_obj = NetworkIpam(project = project_obj)
+            netipam_obj = NetworkIpam(project_obj = project_obj)
             ipam_fq_name = netipam_obj.get_fq_name()
 
         subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
