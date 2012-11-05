@@ -16,6 +16,10 @@ from quantum.common import exceptions as exc
 #from quantum.db import api as db
 from quantum.db import db_base_plugin_v2
 
+from quantum.openstack.common import cfg
+from httplib2 import Http
+import re
+
 import ctdb.config_db
 
 LOG = logging.getLogger(__name__)
@@ -40,9 +44,15 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
     _cfgdb = None
     _operdb = None
     _args = None
+    _tenant_id_dict = {}
+    _tenant_name_dict = {}
 
     @classmethod
     def _parse_class_args(cls, cfg_parser):
+        cfg_parser.read("/etc/quantum/plugins/contrail/contrail_plugin.ini")
+        cls._admin_token   = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_token', '')
+        cls._auth_url      = _read_cfg(cfg_parser, 'KEYSTONE', 'auth_url', '')
+        cls._tenants_api   = '%s/tenants' % (cls._auth_url)
         pass
     #end _parse_class_args
 
@@ -60,7 +70,35 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
             cls._cfgdb = ctdb.config_db.DBInterface('127.0.0.1', '8082')
             # TODO Treat the 2 DBs as logically separate? (same backend for now)
             cls._operdb = cls._cfgdb
+            
+            cls._cfgdb.manager = cls
     #end _connect_to_db
+
+    @classmethod
+    def _tenant_list_from_keystone(cls):
+        # get all tenants
+        hdrs = {'X-Auth-Token': cls._admin_token, 'Content-Type': 'application/json'}
+        try:
+            rsp, content = Http().request(cls._tenants_api, method="GET", headers=hdrs)
+            if rsp.status != 200:
+                return
+        except:
+            return
+
+        # transform needed for python compatibility
+        content = re.sub('true', 'True', content)
+        content = re.sub('null', 'None', content)
+        content = eval(content)
+
+        # bail if response is unexpected 
+        if 'tenants' not in content: 
+            return
+
+        # create a dictionary for id->name and name->id mapping
+        for tenant in content['tenants']:
+            cls._tenant_id_dict[tenant['id']]   = tenant['name']
+            cls._tenant_name_dict[tenant['name']] = tenant['id']
+    #end _tenant_list_from_keystone
 
     def __init__(self):
         cfg_parser = ConfigParser.ConfigParser()
@@ -68,7 +106,37 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         ContrailPlugin._connect_to_db()
         self._cfgdb = ContrailPlugin._cfgdb
+
+        ContrailPlugin._tenant_list_from_keystone()
     #end __init__
+
+    @classmethod
+    def tenant_id_to_name(cls, id):
+        # bail if we never built the list successfully
+        if len(cls._tenant_id_dict) == 0:
+            return None
+        # check cache 
+        if id in cls._tenant_id_dict:
+            return cls._tenant_id_dict[id]
+        # otherwise refresh 
+        cls._tenant_list_from_keystone()
+        # second time's a charm?
+        return cls._tenant_id_dict[id] if id in cls._tenant_id_dict else None
+    #end tenant_id_to_name
+
+    @classmethod
+    def tenant_name_to_id(cls, name):
+        # bail if we never built the list successfully
+        if len(cls._tenant_name_dict) == 0:
+            return None
+        # check cache 
+        if name in cls._tenant_name_dict:
+            return cls._tenant_name_dict[name]
+        # otherwise refresh 
+        cls._tenant_list_from_keystone()
+        # second time's a charm?
+        return cls._tenant_name_dict[name] if name in cls._tenant_name_dict else None
+    #end tenant_name_to_id
 
     # Network API handlers
     def create_network(self, context, network):
@@ -132,6 +200,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
     def get_networks(self, context, filters=None, fields=None):
         LOG.debug("Plugin.get_networks() called")
+
+        if 'tenant_id' in context.__dict__:
+            tenant_id = context.__dict__['tenant_id']
+            tenant_name = ContrailPlugin.tenant_id_to_name(tenant_id)
 
         nets_info = self._cfgdb.network_list(filters)
 

@@ -69,7 +69,8 @@ class DBInterface(object):
     #end _relay_request
 
     def _ensure_project_exists(self, project_id):
-        project_obj = Project(project_id)
+        project_name = self.manager.tenant_id_to_name(project_id)
+        project_obj = Project(project_name)
         try:
             id = self._vnc_lib.obj_to_id(project_obj)
         except NoIdError:
@@ -243,7 +244,8 @@ class DBInterface(object):
     # Conversion routines between VNC and Quantum objects
     def _network_quantum_to_vnc(self, network_q, oper):
         net_name = network_q.get('name', None)
-        project_name = network_q.get('tenant_id', None)
+        project_id = network_q.get('tenant_id', None)
+        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
             project_obj = Project(project_name)
             id_perms = IdPermsType(enable = True)
@@ -287,8 +289,7 @@ class DBInterface(object):
         net_q_dict['id'] = net_obj.uuid
         net_q_dict['name'] = net_obj.name
         extra_dict['contrail:fq_name'] = net_obj.get_fq_name()
-        # TODO resolve name/id for projects
-        net_q_dict['tenant_id'] = net_obj.parent_name
+        net_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
         net_q_dict['admin_state_up'] = net_obj.get_id_perms().enable
         net_q_dict['shared'] = False
         net_q_dict['status'] = constants.NET_STATUS_ACTIVE
@@ -346,8 +347,7 @@ class DBInterface(object):
     def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj, ipam_fq_name):
         sn_q_dict = {}
         sn_q_dict['name'] = ''
-        # TODO resolve tenant_id/tenant_name with keystone sync-up on boot
-        sn_q_dict['tenant_id'] = net_obj.parent_name
+        sn_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
         sn_q_dict['network_id'] = net_obj.uuid
         sn_q_dict['ip_version'] = 4 #TODO ipv6?
 
@@ -393,7 +393,8 @@ class DBInterface(object):
 
     def _ipam_quantum_to_vnc(self, ipam_q, oper):
         ipam_name = ipam_q.get('name', None)
-        project_name = ipam_q.get('tenant_id', None)
+        project_id = ipam_q.get('tenant_id', None)
+        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
             project_obj = Project(project_name)
             ipam_obj = NetworkIpam(ipam_name, project_obj)
@@ -419,7 +420,7 @@ class DBInterface(object):
 
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
-        ipam_q_dict['tenant_id'] = ipam_q_dict.pop('parent_name')
+        ipam_q_dict['tenant_id'] = self.manager.tenant_name_to_id(ipam_q_dict.pop('parent_name'))
         ipam_q_dict['fq_name'] = ipam_q_dict.pop('_fq_name')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('_network_ipam_mgmt')
 
@@ -429,7 +430,8 @@ class DBInterface(object):
 
     def _policy_quantum_to_vnc(self, policy_q, oper):
         policy_name = policy_q.get('name', None)
-        project_name = policy_q.get('tenant_id', None)
+        project_id = policy_q.get('tenant_id', None)
+        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
             project_obj = Project(project_name)
             policy_obj = NetworkPolicy(policy_name, project_obj)
@@ -450,7 +452,7 @@ class DBInterface(object):
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
         policy_q_dict['fq_name'] = policy_q_dict.pop('_fq_name')
-        policy_q_dict['tenant_id'] = policy_q_dict.pop('parent_name')
+        policy_q_dict['tenant_id'] = self.manager.tenant_name_to_id(policy_q_dict.pop('parent_name'))
         policy_q_dict['entries'] = policy_q_dict.pop('_network_policy_entries')
         net_back_refs = policy_q_dict.pop('_virtual_network_back_refs')
         if net_back_refs:
@@ -492,7 +494,7 @@ class DBInterface(object):
             net_id = self._vnc_lib.obj_to_id(VirtualNetwork())
 
         net_obj = self._vnc_lib.virtual_network_read(id = net_id)
-        port_q_dict['tenant_id'] = net_obj.parent_name
+        port_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
         port_q_dict['network_id'] = net_obj.uuid
 
         # TODO RHS below may need fixing
@@ -609,7 +611,8 @@ class DBInterface(object):
             project_obj = Project(project_name, domain_obj)
             netipam_obj = NetworkIpam(ipam_name, project_obj)
         else: # link subnet with default ipam
-            project_obj = Project(subnet_q['tenant_id'])
+            project_id = subnet_q['tenant_id']
+            project_obj = Project(self.manager.tenant_id_to_name(project_id))
             netipam_obj = NetworkIpam(project_obj = project_obj)
             ipam_fq_name = netipam_obj.get_fq_name()
 
