@@ -611,8 +611,7 @@ class DBInterface(object):
             project_obj = Project(project_name, domain_obj)
             netipam_obj = NetworkIpam(ipam_name, project_obj)
         else: # link subnet with default ipam
-            project_id = subnet_q['tenant_id']
-            project_obj = Project(self.manager.tenant_id_to_name(project_id))
+            project_obj = Project(net_obj.parent_name)
             netipam_obj = NetworkIpam(project_obj = project_obj)
             ipam_fq_name = netipam_obj.get_fq_name()
 
