@@ -114,28 +114,28 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
     def tenant_id_to_name(cls, id):
         # bail if we never built the list successfully
         if len(cls._tenant_id_dict) == 0:
-            return None
+            return id
         # check cache 
         if id in cls._tenant_id_dict:
             return cls._tenant_id_dict[id]
         # otherwise refresh 
         cls._tenant_list_from_keystone()
         # second time's a charm?
-        return cls._tenant_id_dict[id] if id in cls._tenant_id_dict else None
+        return cls._tenant_id_dict[id] if id in cls._tenant_id_dict else id
     #end tenant_id_to_name
 
     @classmethod
     def tenant_name_to_id(cls, name):
         # bail if we never built the list successfully
         if len(cls._tenant_name_dict) == 0:
-            return None
+            return name
         # check cache 
         if name in cls._tenant_name_dict:
             return cls._tenant_name_dict[name]
         # otherwise refresh 
         cls._tenant_list_from_keystone()
         # second time's a charm?
-        return cls._tenant_name_dict[name] if name in cls._tenant_name_dict else None
+        return cls._tenant_name_dict[name] if name in cls._tenant_name_dict else name
     #end tenant_name_to_id
 
     # Network API handlers
