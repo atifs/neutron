@@ -96,6 +96,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
         # create a dictionary for id->name and name->id mapping
         for tenant in content['tenants']:
+            print 'Adding tenant %s:%s to cache' % (tenant['name'], tenant['id'])
             cls._tenant_id_dict[tenant['id']]   = tenant['name']
             cls._tenant_name_dict[tenant['name']] = tenant['id']
     #end _tenant_list_from_keystone

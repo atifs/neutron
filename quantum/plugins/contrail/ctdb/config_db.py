@@ -119,7 +119,8 @@ class DBInterface(object):
     # find network ids on a given project
     def _network_list_project(self, project_id):
         # TODO resolve project_id vs project_name
-        project_obj = Project(project_id)
+        project_name = self.manager.tenant_id_to_name(project_id)
+        project_obj = Project(project_name)
         resp_str = self._vnc_lib.virtual_networks_list(project_obj)
         resp_dict = json.loads(resp_str)
 
@@ -128,7 +129,8 @@ class DBInterface(object):
 
     def _ipam_list_project(self, project_id):
         # TODO resolve project_id vs project_name
-        project_obj = Project(project_id)
+        project_name = self.manager.tenant_id_to_name(project_id)
+        project_obj = Project(project_name)
         resp_str = self._vnc_lib.network_ipams_list(project_obj)
         resp_dict = json.loads(resp_str)
 
@@ -137,7 +139,8 @@ class DBInterface(object):
 
     def _policy_list_project(self, project_id):
         # TODO resolve project_id vs project_name
-        project_obj = Project(project_id)
+        project_name = self.manager.tenant_id_to_name(project_id)
+        project_obj = Project(project_name)
         resp_str = self._vnc_lib.network_policys_list(project_obj)
         resp_dict = json.loads(resp_str)
 
