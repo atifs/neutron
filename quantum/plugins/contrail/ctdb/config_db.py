@@ -186,14 +186,19 @@ class DBInterface(object):
     #       2. resource matches param-list AND
     #       3. shared parameter in filters is False
     def _filters_is_present(self, filters, key_name, match_value):
-        if filters and filters.has_key(key_name):
-            try:
-                idx = filters[key_name].index(match_value)
-                if (filters.has_key('shared') and
-                    filters['shared'][idx] == True):
-                    return False # no shared-resource support
-            except ValueError: # not in requested list
-                return False
+        if filters:
+            if filters.has_key(key_name):
+                try:
+                    idx = filters[key_name].index(match_value)
+                    if (filters.has_key('shared') and
+                        filters['shared'][idx] == True):
+                        return False # no shared-resource support
+                except ValueError: # not in requested list
+                    return False
+            elif len(filters.keys()) == 1:
+                shared_val = filters.get('shared', None)
+                if shared_val and shared_val[0] == True:
+                    return False
 
         return True
     #end _filters_is_present

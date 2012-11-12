@@ -42,13 +42,14 @@ IFMAP_SVR_PASSWD3 = 'test3'
 API_SVR_IP = '127.0.0.1'
 API_SVR_PORT = '8082'
 QUANTUM_SVR_IP = '127.0.0.1'
-QUANTUM_SVR_PORT = '9595'
-BGP_SVR_PORT = '9090'
+QUANTUM_SVR_PORT = '9696'
+BGP_SVR_PORT = '9023'
+BGP_SANDESH_PORT = '9024'
 
-IFMAP_SVR_LOC='/home/contrail/irond-dist'
+IFMAP_SVR_LOC='/home/stack/source/ifmap-server/'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
 SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
-BGP_SVR_ROOT='/home/contrail/source/ctrlplane/'
+BGP_SVR_ROOT='/home/stack/cp_1111/'
 
 class CRUDTestCase(unittest.TestCase):
     def setUp(self):
@@ -186,36 +187,36 @@ class CRUDTestCase(unittest.TestCase):
         
         # Operational (interface directly with vnc-lib)
         # TODO go thru quantum in future
-        vnc_lib = VncApi('u', 'p', api_server_host = API_SVR_IP,
-                          api_server_port = API_SVR_PORT)
-        server1_obj = VirtualRouter('phys-host-1')
-        server1_uuid = vnc_lib.virtual_router_create(server1_obj)
+        #vnc_lib = VncApi('u', 'p', api_server_host = API_SVR_IP,
+        #                  api_server_port = API_SVR_PORT)
+        #server1_obj = VirtualRouter('phys-host-1')
+        #server1_uuid = vnc_lib.virtual_router_create(server1_obj)
 
-        instance1_obj = VirtualMachine(str(uuid.uuid4()))
-        instance1_uuid = vnc_lib.virtual_machine_create(instance1_obj)
+        #instance1_obj = VirtualMachine(str(uuid.uuid4()))
+        #instance1_uuid = vnc_lib.virtual_machine_create(instance1_obj)
 
-        port1_obj = VirtualMachineInterface(str(uuid.uuid4()), instance1_obj)
-        net1_obj = VirtualNetwork.from_fq_name(net1_fq_name)
-        port1_obj.set_virtual_network(net1_obj)
-        port1_uuid = vnc_lib.virtual_machine_interface_create(port1_obj)
+        #port1_obj = VirtualMachineInterface(str(uuid.uuid4()), instance1_obj)
+        #net1_obj = VirtualNetwork.from_fq_name(net1_fq_name)
+        #port1_obj.set_virtual_network(net1_obj)
+        #port1_uuid = vnc_lib.virtual_machine_interface_create(port1_obj)
 
-        server1_obj.set_virtual_machine(instance1_obj)
-        vnc_lib.virtual_router_update(server1_obj)
+        #server1_obj.set_virtual_machine(instance1_obj)
+        #vnc_lib.virtual_router_update(server1_obj)
      
-        server2_obj = VirtualRouter('phys-host-2')
-        server2_uuid = vnc_lib.virtual_router_create(server2_obj)
+        #server2_obj = VirtualRouter('phys-host-2')
+        #server2_uuid = vnc_lib.virtual_router_create(server2_obj)
 
-        instance2_obj = VirtualMachine(str(uuid.uuid4()))
-        instance2_uuid = vnc_lib.virtual_machine_create(instance2_obj)
+        #instance2_obj = VirtualMachine(str(uuid.uuid4()))
+        #instance2_uuid = vnc_lib.virtual_machine_create(instance2_obj)
 
-        import pdb; pdb.set_trace()
-        port2_obj = VirtualMachineInterface(str(uuid.uuid4()), instance2_obj)
-        net2_obj = VirtualNetwork.from_fq_name(net2_fq_name)
-        port2_obj.set_virtual_network(net2_obj)
-        port2_uuid = vnc_lib.virtual_machine_interface_create(port2_obj)
+        #import pdb; pdb.set_trace()
+        #port2_obj = VirtualMachineInterface(str(uuid.uuid4()), instance2_obj)
+        #net2_obj = VirtualNetwork.from_fq_name(net2_fq_name)
+        #port2_obj.set_virtual_network(net2_obj)
+        #port2_uuid = vnc_lib.virtual_machine_interface_create(port2_obj)
         
-        server2_obj.set_virtual_machine(instance2_obj)
-        vnc_lib.virtual_router_update(server2_obj)
+        #server2_obj.set_virtual_machine(instance2_obj)
+        #vnc_lib.virtual_router_update(server2_obj)
     #end test_policy_link_vns
 
     def _create_subnet(self, cidr, net_id, ipam_fq_name = None):
@@ -244,7 +245,7 @@ class TestBench(Service):
         self.spawn(self.launch_api_server)
         self.spawn(self.launch_quantum_plugin)
         self.spawn(self.launch_schema_transformer)
-        self.spawn(self.launch_bgp_server)
+        #self.spawn(self.launch_bgp_server)
         self.spawn(self.launch_unit_tests)
     #end do_start
 
@@ -311,7 +312,7 @@ class TestBench(Service):
         bgp_server = subprocess.Popen([ './build/debug/bgp/control-node',
             '--map-server-url', 'https://%s:%s' %(IFMAP_SVR_IP, IFMAP_SVR_PORT),
             '--map-user', IFMAP_SVR_USER3, '--map-password', IFMAP_SVR_PASSWD3,
-            '--bgp-port', BGP_SVR_PORT],
+            '--bgp-port', BGP_SVR_PORT, '--sandesh-port', BGP_SANDESH_PORT],
             cwd = BGP_SVR_ROOT, env = {'LD_LIBRARY_PATH': '%s/build/lib' %(BGP_SVR_ROOT)})
         self._bgp_server = bgp_server
     #end launch_bgp_server
