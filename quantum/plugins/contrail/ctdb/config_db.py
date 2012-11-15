@@ -226,21 +226,37 @@ class DBInterface(object):
     #end _subnet_vnc_delete_mapping
 
     def _subnet_vnc_get_key(self, subnet_vnc, net_obj):
-        pfx = subnet_vnc.get_ip_prefix()
-        pfx_len = subnet_vnc.get_ip_prefix_len()
+        pfx = subnet_vnc.subnet.get_ip_prefix()
+        pfx_len = subnet_vnc.subnet.get_ip_prefix_len()
         fq_name_str = ':'.join(net_obj.get_fq_name())
 
         return '%s %s/%s' %(fq_name_str, pfx, pfx_len)
     #end _subnet_vnc_get_key
 
+    def _subnet_read(self, net_uuid, subnet_key):
+        net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
+        ipam_refs = net_obj.get_network_ipam_refs()
+        if not ipam_refs:
+            return None
+
+        # TODO scope for optimization
+        for ipam_ref in ipam_refs:
+            subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
+            for subnet_vnc in subnet_vncs:
+                if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
+                    return subnet_vnc
+
+        return None
+    #end _subnet_read 
+
     def _ip_address_to_subnet_id(self, ip_addr, net_obj):
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:
             for ipam_ref in ipam_refs:
-                subnets = ipam_ref['attr'].get_subnet()
-                for subnet_vnc in subnets:
-                    cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
-                                     subnet_vnc.get_ip_prefix_len())
+                subnet_vncs = ipam_ref['attr'].get_subnet()
+                for subnet_vnc in subnet_vncs:
+                    cidr = '%s/%s' %(subnet_vnc.subnet.get_ip_prefix(),
+                                     subnet_vnc.subnet.get_ip_prefix_len())
                     if IPAddress(ip_addr) in IPSet([cidr]):
                         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
                         subnet_id = self._subnet_vnc_read_mapping(key = subnet_key)
@@ -257,15 +273,14 @@ class DBInterface(object):
         if oper == CREATE:
             project_obj = Project(project_name)
             id_perms = IdPermsType(enable = True)
-            net_obj = VirtualNetwork(net_name, project_obj, id_perms)
+            net_obj = VirtualNetwork(net_name, project_obj, id_perms = id_perms)
         else: # READ/UPDATE/DELETE
             net_obj = self._vnc_lib.virtual_network_read(id = network_q['id'])
 
         id_perms = net_obj.get_id_perms()
         if network_q.has_key('admin_state_up'):
             id_perms.enable = network_q['admin_state_up']
-
-        net_obj.set_id_perms(id_perms)
+            net_obj.set_id_perms(id_perms)
 
         if (network_q.has_key('contrail:policys') and
             network_q['contrail:policys'] != ''):
@@ -347,7 +362,13 @@ class DBInterface(object):
         cidr = subnet_q['cidr'].split('/')
         pfx = cidr[0]
         pfx_len = int(cidr[1])
-        subnet_vnc = SubnetType(pfx, pfx_len)
+        if subnet_q['gateway_ip'] != attr.ATTR_NOT_SPECIFIED:
+            default_gw = subnet_q['gateway_ip']
+        else:
+            # Assigned by address manager
+            default_gw = None
+        subnet_vnc = IpamSubnetType(subnet = SubnetType(pfx, pfx_len),
+                                    default_gateway = default_gw)
 
         return subnet_vnc
     #end _subnet_quantum_to_vnc
@@ -359,15 +380,15 @@ class DBInterface(object):
         sn_q_dict['network_id'] = net_obj.uuid
         sn_q_dict['ip_version'] = 4 #TODO ipv6?
 
-        cidr = '%s/%s' %(subnet_vnc.get_ip_prefix(),
-                         subnet_vnc.get_ip_prefix_len())
+        cidr = '%s/%s' %(subnet_vnc.subnet.get_ip_prefix(),
+                         subnet_vnc.subnet.get_ip_prefix_len())
         sn_q_dict['cidr'] = cidr
 
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
         sn_id = self._subnet_vnc_read_mapping(key = subnet_key)
         sn_q_dict['id'] = sn_id
 
-        sn_q_dict['gateway_ip'] = '169.254.169.254'
+        sn_q_dict['gateway_ip'] = subnet_vnc.default_gateway
 
         first_ip = str(IPNetwork(cidr).network + 1)
         last_ip = str(IPNetwork(cidr).broadcast - 1)
@@ -473,16 +494,22 @@ class DBInterface(object):
                 'q_extra_data': {}}
     #end _policy_vnc_to_quantum
 
-    def _port_quantum_to_vnc(self, port_q, net_obj = None):
-        if not net_obj:
-            net_id = port_q['network_id']
-            net_obj = self._network_read(net_id)
-            
-        port_name = str(uuid.uuid4())
-        instance_name = port_q['device_id']
-        instance_obj = VirtualMachine(instance_name)
-        port_obj = VirtualMachineInterface(port_name, instance_obj)
-        port_obj.set_virtual_network(net_obj)
+    def _port_quantum_to_vnc(self, port_q, net_obj, oper):
+        if oper == CREATE:
+            port_name = str(uuid.uuid4())
+            instance_name = port_q['device_id']
+            instance_obj = VirtualMachine(instance_name)
+
+            id_perms = IdPermsType(enable = True)
+            port_obj = VirtualMachineInterface(port_name, instance_obj, id_perms = id_perms)
+            port_obj.set_virtual_network(net_obj)
+        else: # READ/UPDATE/DELETE
+            port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_q['id'])
+
+        id_perms = port_obj.get_id_perms()
+        if port_q.has_key('admin_state_up'):
+            id_perms.enable = port_q['admin_state_up']
+            port_obj.set_id_perms(id_perms)
 
         return port_obj
     #end _port_quantum_to_vnc
@@ -515,8 +542,7 @@ class DBInterface(object):
         ip_back_refs = port_obj.get_instance_ip_back_refs()
         if ip_back_refs:
             for ip_back_ref in ip_back_refs:
-                ip_fq_name = ip_back_ref['to']
-                ip_obj = self._vnc_lib.instance_ip_read(id = ip_fq_name[-1])
+                ip_obj = self._vnc_lib.instance_ip_read(fq_name = ip_back_ref['to'])
                 ip_addr = ip_obj.get_instance_ip_address()
 
                 ip_q_dict = {}
@@ -528,7 +554,7 @@ class DBInterface(object):
 
                 port_q_dict['fixed_ips'].append(ip_q_dict)
 
-        port_q_dict['admin_state_up'] = True
+        port_q_dict['admin_state_up'] = port_obj.get_id_perms().enable
         port_q_dict['status'] = constants.PORT_STATUS_ACTIVE
         port_q_dict['device_id'] = port_obj.parent_name
         port_q_dict['device_owner'] = 'TODO-device-owner'
@@ -651,6 +677,8 @@ class DBInterface(object):
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
         self._subnet_vnc_create_mapping(subnet_id, subnet_key)
 
+        # Read in subnet from server to get updated values for gw etc.
+        subnet_vnc = self._subnet_read(net_obj.uuid, subnet_key)
         subnet_info = self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
                                                   ipam_fq_name)
 
@@ -868,9 +896,8 @@ class DBInterface(object):
         vrouter_obj = self._ensure_vrouter_exists(port_q['compute_node_id'])
         self._ensure_instance_exists(port_q['device_id'], vrouter_obj)
 
-
         # initialize port object
-        port_obj = self._port_quantum_to_vnc(port_q, net_obj)
+        port_obj = self._port_quantum_to_vnc(port_q, net_obj, CREATE)
 
         # initialize ip object
         ip_name = str(uuid.uuid4())
@@ -895,11 +922,30 @@ class DBInterface(object):
     #end port_create
 
     # TODO add obj param and let caller use below only as a converter
-    def port_read(self, context, id, fields = None):
-        port_obj = self._vnc_lib.virtual_machine_interface_read(id = id)
+    def port_read(self, port_id):
+        port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
 
         return self._port_vnc_to_quantum(port_obj)
     #end port_read
+
+    def port_update(self, port_id, port_q):
+        port_q['id'] = port_id
+        port_obj = self._port_quantum_to_vnc(port_q, None, UPDATE)
+        self._vnc_lib.virtual_machine_interface_update(port_obj)
+
+        return self._port_vnc_to_quantum(port_obj)
+    #end port_update
+ 
+    def port_delete(self, port_id):
+        port_obj = self._port_quantum_to_vnc({'id': port_id}, None, READ)
+
+        ip_back_refs = port_obj.get_instance_ip_back_refs()
+        for ip_back_ref in ip_back_refs:
+            ip_obj = self._vnc_lib.instance_ip_read(fq_name = ip_back_ref['to'])
+            self._vnc_lib.instance_ip_delete(id = ip_obj.uuid)
+
+        self._vnc_lib.virtual_machine_interface_delete(id = port_id)
+    #end port_delete
 
     def port_list(self, filters = None):
         project_obj = None
@@ -914,13 +960,13 @@ class DBInterface(object):
             for proj_id in filters.get('tenant_id', []):
                 proj_ports = self._port_list_project(proj_id)
                 for port in proj_ports:
-                    port_info = self.port_read(None, port['id'])
+                    port_info = self.port_read(port['id'])
                     ret_q_ports.append(port_info)
 
             for net_id in filters.get('network_id', []):
                 net_ports = self._port_list_network(net_id)
                 for port in net_ports:
-                    port_info = self.port_read(None, port['id'])
+                    port_info = self.port_read(port['id'])
                     ret_q_ports.append(port_info)
 
             return ret_q_ports
@@ -936,7 +982,7 @@ class DBInterface(object):
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
-                port_info = self.port_read(None, vm_intf['uuid'])
+                port_info = self.port_read(vm_intf['uuid'])
                 ret_q_ports.append(port_info)
 
         return ret_q_ports

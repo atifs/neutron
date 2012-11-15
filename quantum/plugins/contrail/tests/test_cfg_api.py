@@ -48,8 +48,9 @@ BGP_SANDESH_PORT = '9024'
 
 IFMAP_SVR_LOC='/home/stack/source/ifmap-server/'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
-SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
-BGP_SVR_ROOT='/home/stack/cp_1111/'
+#SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
+SCHEMA_TRANSFORMER_LOC='/home/contrail/source/ctrlplane/src/cfgm/schema-transformer/'
+BGP_SVR_ROOT='/home/contrail/source/ctrlplane/'
 
 class CRUDTestCase(unittest.TestCase):
     def setUp(self):
@@ -88,11 +89,12 @@ class CRUDTestCase(unittest.TestCase):
         net_rsp = self._quantum.update_network(net_id, {'network': net_req})
         self.assertNotEqual(net_admin_state,
                             net_rsp['network']['admin_state_up'])
-
+ 
         # Delete; Verify with show + list
         self._quantum.delete_network(net_id)
 
-        with self.assertRaises(exceptions.QuantumClientException) as e:
+        with self.assertRaisesRegexp(exceptions.QuantumClientException,
+                                     'could not be found') as e:
             self._quantum.show_network(net_id)
 
         net_rsp = self._quantum.list_networks()
@@ -100,7 +102,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for network in net_rsp['networks']])
     #end test_network
 
-    def _test_subnet(self):
+    def test_subnet(self):
         # Create; Verify with show + list 
         param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
         nets = self._quantum.list_networks(**param)['networks']
@@ -110,29 +112,123 @@ class CRUDTestCase(unittest.TestCase):
         ipam_fq_name = NetworkIpam().get_fq_name()
 
         cidr = u'1.1.1.0/24'
+        gw = u'1.1.1.254'
         subnet_req = {'network_id': net_id,
                       'cidr': cidr,
                       'ip_version': 4,
                       'contrail:ipam_fq_name': ipam_fq_name}
         subnet_rsp = self._quantum.create_subnet({'subnet': subnet_req})
         subnet_cidr = subnet_rsp['subnet']['cidr']
+        subnet_gw = subnet_rsp['subnet']['gateway_ip']
         self.assertEqual(subnet_cidr, cidr)
+        self.assertEqual(subnet_gw, gw)
+
     #end test_subnet
 
     def _test_same_name(self):
+        print "Creating net with name vn1"
         net_name = 'vn1'
         net_req = {'name': net_name}
         net_rsp = self._quantum.create_network({'network': net_req})
 
+        print "Creating ipam with name vn1"
         ipam_req = {'name': net_name}
         ipam_rsp = self._quantum.create_ipam({'ipam': ipam_req})
 
-        # def-proj-def-net, my-proj-def-net + my-proj-new-net
-        self.assertEqual(len(self._quantum.list_networks()['networks']), 3)
-        self.assertEqual(len(self._quantum.list_ipams()['ipams']), 3)
+        print "Making sure no duplicates in net-list and ipam-list"
+        net_name_list = [net['name'] for net in self._quantum.list_networks()['networks']]
+        net_name_set = set(net_name_list)
+        self.assertEqual(len(net_name_list), len(net_name_set))
+
+        ipam_name_list = [ipam['name'] for ipam in self._quantum.list_ipams()['ipams']]
+        ipam_name_set = set(ipam_name_list)
+        self.assertEqual(len(ipam_name_list), len(ipam_name_set))
     #end test_same_name
 
-    def test_policy_link_vns(self):
+    def _test_port(self):
+        print "Creating network VN1, subnet 10.1.1.0/24"
+        net_req = {'name': 'vn1', 'tenant_id': 'test-tenant'}
+        net_rsp = self._quantum.create_network({'network': net_req})
+        net1_id = net_rsp['network']['id']
+        net1_fq_name = net_rsp['network']['contrail:fq_name']
+        net1_fq_name_str = ':'.join(net1_fq_name)
+        sn1_id = self._create_subnet(u'10.1.1.0/24', net1_id)
+
+        print "Creating port"
+        instance_id = str(uuid.uuid4())
+        port_req = {'network_id': net1_id, 'tenant_id': 'test-tenant',
+                    'device_id': instance_id,
+                    'compute_node_id': 'test-server'}
+        port_rsp = self._quantum.create_port({'port': port_req})
+        port_id = port_rsp['port']['id']
+        port_admin_state = port_rsp['port']['admin_state_up']
+
+        print "Reading port"
+        port_rsp = self._quantum.show_port(port_id)
+        self.assertEqual(port_rsp['port']['device_id'], instance_id)
+        fixed_ips = port_rsp['port']['fixed_ips']
+        self.assertEqual(len(fixed_ips), 1)
+        self.assertEqual(fixed_ips[0]['subnet_id'], sn1_id)
+        #TODO assert addr is in subnet and not in reserved range
+
+        print "Updating port"
+        port_req = {'admin_state_up': not port_admin_state}
+        port_rsp = self._quantum.update_port(port_id, {'port': port_req})
+        self.assertNotEqual(port_admin_state,
+                            port_rsp['port']['admin_state_up'])
+
+        print "Listing port"
+        port_rsp = self._quantum.list_ports(device_id = [instance_id])
+        self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
+        port_rsp = self._quantum.list_ports(tenant_id = ['test-tenant'])
+        self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
+
+        # Delete; Verify with show + list
+        print "Deleting port"
+        self._quantum.delete_port(port_id)
+
+        with self.assertRaises(exceptions.QuantumClientException) as e:
+            self._quantum.show_port(port_id)
+
+        port_rsp = self._quantum.list_ports(device_id = [instance_id])
+        self.assertFalse(port_id in [port['id'] \
+                                     for port in port_rsp['ports']])
+    #end test_port
+
+    def _test_policy(self):
+        print "Creating policy pol1"
+        np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
+                        [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
+                        [AddressType(virtual_network = 'any')], [PortType(-1, -1)], None)]
+        pol_entries = PolicyEntriesType(np_rules)
+        pol_entries_dict = \
+            json.loads(json.dumps(pol_entries,
+                            default=lambda o: {k:v for k, v in o.__dict__.iteritems()}))
+        import pdb; pdb.set_trace()
+        policy_req = {'name': 'pol1',
+                      'entries': pol_entries_dict}
+        
+        policy_rsp = self._quantum.create_policy({'policy': policy_req})
+        policy1_fq_name = policy_rsp['policy']['fq_name']
+        policy1_id = policy_rsp['policy']['id']
+
+        print "Reading policy pol1"
+        policy_rsp = self._quantum.show_policy(policy1_id)
+        self.assertEqual(len(policy_rsp['policy']['entries']), 1)
+
+        print "Updating policy pol1"
+        np_rules = [PolicyRuleType(None, '->', 'deny', 'any',
+                        [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
+                        [AddressType(virtual_network = 'any')], [PortType(-1, -1)], None)]
+        pol_entries = PolicyEntriesType(np_rules)
+        pol_entries_dict = \
+            json.loads(json.dumps(pol_entries,
+                            default=lambda o: {k:v for k, v in o.__dict__.iteritems()}))
+        policy_req = {'entries': pol_entries_dict}
+        policy_rsp = self._quantum.update_policy(policy1_id, {'policy': policy_req})
+    #end test_policy
+
+    def _test_policy_link_vns(self):
         print "Creating network VN1, subnet 10.1.1.0/24"
         net_req = {'name': 'vn1'}
         net_rsp = self._quantum.create_network({'network': net_req})
@@ -187,36 +283,16 @@ class CRUDTestCase(unittest.TestCase):
         
         # Operational (interface directly with vnc-lib)
         # TODO go thru quantum in future
-        #vnc_lib = VncApi('u', 'p', api_server_host = API_SVR_IP,
-        #                  api_server_port = API_SVR_PORT)
-        #server1_obj = VirtualRouter('phys-host-1')
-        #server1_uuid = vnc_lib.virtual_router_create(server1_obj)
+        #instance_id = str(uuid.uuid4())
+        #port_req = {'network_id': net1_id, 'tenant_id': 'test-tenant',
+        #            'device_id': instance_id,
+        #            'compute_node_id': 'test-server'}
+        #port_rsp = self._quantum.create_port({'port': port_req})
+        #port_id = port_rsp['port']['id']
 
-        #instance1_obj = VirtualMachine(str(uuid.uuid4()))
-        #instance1_uuid = vnc_lib.virtual_machine_create(instance1_obj)
+        #port_rsp = self._quantum.list_ports(device_id = [instance_id])
+        #self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
 
-        #port1_obj = VirtualMachineInterface(str(uuid.uuid4()), instance1_obj)
-        #net1_obj = VirtualNetwork.from_fq_name(net1_fq_name)
-        #port1_obj.set_virtual_network(net1_obj)
-        #port1_uuid = vnc_lib.virtual_machine_interface_create(port1_obj)
-
-        #server1_obj.set_virtual_machine(instance1_obj)
-        #vnc_lib.virtual_router_update(server1_obj)
-     
-        #server2_obj = VirtualRouter('phys-host-2')
-        #server2_uuid = vnc_lib.virtual_router_create(server2_obj)
-
-        #instance2_obj = VirtualMachine(str(uuid.uuid4()))
-        #instance2_uuid = vnc_lib.virtual_machine_create(instance2_obj)
-
-        #import pdb; pdb.set_trace()
-        #port2_obj = VirtualMachineInterface(str(uuid.uuid4()), instance2_obj)
-        #net2_obj = VirtualNetwork.from_fq_name(net2_fq_name)
-        #port2_obj.set_virtual_network(net2_obj)
-        #port2_uuid = vnc_lib.virtual_machine_interface_create(port2_obj)
-        
-        #server2_obj.set_virtual_machine(instance2_obj)
-        #vnc_lib.virtual_router_update(server2_obj)
     #end test_policy_link_vns
 
     def _create_subnet(self, cidr, net_id, ipam_fq_name = None):
@@ -230,6 +306,7 @@ class CRUDTestCase(unittest.TestCase):
         subnet_rsp = self._quantum.create_subnet({'subnet': subnet_req})
         subnet_cidr = subnet_rsp['subnet']['cidr']
         self.assertEqual(subnet_cidr, cidr)
+        return subnet_rsp['subnet']['id']
     #end _create_subnet
 
 #end class CRUDTestCase
@@ -262,8 +339,10 @@ class TestBench(Service):
 
     def launch_ifmap_server(self):
         self._ensure_port_not_listened(IFMAP_SVR_IP, IFMAP_SVR_PORT)
+        logf_out = open('ifmap-server.out', 'w')
+        logf_err = open('ifmap-server.err', 'w')
         maps = subprocess.Popen(['java', '-jar', 'build/irond.jar'],
-                                cwd=IFMAP_SVR_LOC) 
+                                cwd=IFMAP_SVR_LOC, stdout = None, stderr = None) 
         self._ifmap_server = maps
     #end launch_ifmap_server
 
