@@ -253,7 +253,7 @@ class DBInterface(object):
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:
             for ipam_ref in ipam_refs:
-                subnet_vncs = ipam_ref['attr'].get_subnet()
+                subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
                 for subnet_vnc in subnet_vncs:
                     cidr = '%s/%s' %(subnet_vnc.subnet.get_ip_prefix(),
                                      subnet_vnc.subnet.get_ip_prefix_len())
@@ -335,7 +335,7 @@ class DBInterface(object):
         if ipam_refs:
             extra_dict['contrail:subnet_ipam'] = []
             for ipam_ref in ipam_refs:
-                subnets = ipam_ref['attr'].get_subnet()
+                subnets = ipam_ref['attr'].get_ipam_subnets()
                 for subnet in subnets:
                     sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
                                                           ipam_ref['to'])
@@ -390,8 +390,9 @@ class DBInterface(object):
 
         sn_q_dict['gateway_ip'] = subnet_vnc.default_gateway
 
+        # TODO fix this to not hard-code
         first_ip = str(IPNetwork(cidr).network + 1)
-        last_ip = str(IPNetwork(cidr).broadcast - 1)
+        last_ip = str(IPNetwork(cidr).broadcast - 2)
         sn_q_dict['allocation_pools'] = \
             [{'id': 'TODO-allocation_pools-id',
              'subnet_id': sn_id,
@@ -666,7 +667,7 @@ class DBInterface(object):
             net_obj.add_network_ipam(netipam_obj, vnsn_data)
         else: # virtual-network already linked to this ipam
             vnsn_data = net_ipam_ref['attr']
-            vnsn_data.subnet.append(subnet_vnc)
+            vnsn_data.ipam_subnets.append(subnet_vnc)
             net_obj.set_network_ipam(netipam_obj, vnsn_data)
 
         self._vnc_lib.virtual_network_update(net_obj)
@@ -695,8 +696,8 @@ class DBInterface(object):
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:
             for ipam_ref in ipam_refs:
-                subnets = ipam_ref['attr'].get_subnet()
-                for subnet_vnc in subnets:
+                subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
+                for subnet_vnc in subnet_vncs:
                     if self._subnet_vnc_get_key(subnet_vnc, net_obj) == subnet_key:
                         return self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
                                                            ipam_ref['to'])
@@ -719,8 +720,8 @@ class DBInterface(object):
         ipam_refs = net_obj.get_network_ipam_refs()
         if ipam_refs:
             for ipam_ref in ipam_refs:
-                orig_subnets = ipam_ref['attr'].get_subnet()
-                new_subnets = [subnet for subnet in orig_subnets \
+                orig_subnets = ipam_ref['attr'].get_ipam_subnets()
+                new_subnets = [subnet_vnc for subnet_vnc in orig_subnets \
                                if self._subnet_vnc_get_key(subnet, net_obj) != subnet_key]
                 if len(orig_subnets) != len(new_subnets):
                     # matched subnet to be deleted
@@ -740,9 +741,9 @@ class DBInterface(object):
             ipam_refs = net_obj.get_network_ipam_refs()
             if ipam_refs:
                 for ipam_ref in ipam_refs:
-                    subnets = ipam_ref['attr'].get_subnet()
-                    for subnet in subnets:
-                        sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                    subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
+                    for subnet_vnc in subnet_vncs:
+                        sn_info = self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
                                                               ipam_ref['to'])
                         sn_id = sn_info['q_api_data']['id']
                         sn_proj_id = sn_info['q_api_data']['tenant_id']
