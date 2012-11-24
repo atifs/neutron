@@ -13,8 +13,8 @@ from pprint import pformat
 
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
-#from quantum.db import api as db
 from quantum.db import db_base_plugin_v2
+from quantum.extensions import floatingip
 
 from quantum.openstack.common import cfg
 from httplib2 import Http
@@ -35,12 +35,15 @@ def _read_cfg(cfg_parser, section, option, default):
         return val
 #end _read_cfg
 
-class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
+#TODO define ABC PluginBase for ipam and policy and derive mixin from them
+class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
+                     floatingip.FloatingIpPluginBase):
     """
     .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
-    supported_extension_aliases = ["ipam", "policy", "security_groups"]
+    supported_extension_aliases = ["ipam", "policy", "security_groups",
+                                   "floatingip"]
     _cfgdb = None
     _operdb = None
     _args = None
@@ -201,10 +204,6 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
 
     def get_networks(self, context, filters=None, fields=None):
         LOG.debug("Plugin.get_networks() called")
-
-        if 'tenant_id' in context.__dict__:
-            tenant_id = context.__dict__['tenant_id']
-            tenant_name = ContrailPlugin.tenant_id_to_name(tenant_id)
 
         nets_info = self._cfgdb.network_list(filters)
 
@@ -452,6 +451,48 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2):
         print "get_policys(): " + pformat(policys_dicts) + "\n"
         return policys_dicts
     #end get_policys
+
+    # Floating IP API handlers
+    def create_floatingip(self, context, floatingip):
+        fip_info = self._cfgdb.floatingip_create(floatingip['floatingip'])
+
+        # verify transformation is conforming to api
+        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+        fip_dict.update(fip_info['q_extra_data'])
+
+        print "create_floatingip(): " + pformat(fip_dict) + "\n"
+        return fip_dict
+    #end create_floatingip
+
+    def update_floatingip(self, context, id, floatingip):
+        pass
+    #end update_floatingip
+
+    def get_floatingip(self, context, id, fields=None):
+        pass
+    #end get_floatingip
+
+    def delete_floatingip(self, context, id):
+        pass
+    #end delete_floatingip
+
+    def get_floatingips(self, context, filters=None, fields=None):
+        LOG.debug("Plugin.get_floatingips() called")
+
+        fips_info = self._cfgdb.floatingip_list(filters)
+
+        fips_dicts = []
+        for fip_info in fips_info:
+            # verify transformation is conforming to api
+            fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+            fip_dict.update(fip_info['q_extra_data'])
+            fips_dicts.append(fip_dict)
+
+        print "get_floatingips(): " + pformat(fips_dicts) + "\n"
+        return fips_dicts
+    #end get_floatingips
 
     # Port API handlers
     def create_port(self, context, port):

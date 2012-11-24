@@ -1,4 +1,4 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
+#fq_name =  vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2012, Contrail Systems, Inc.
 #
@@ -10,7 +10,6 @@ import requests
 import re
 import uuid
 import json
-import uuid
 from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
@@ -68,18 +67,6 @@ class DBInterface(object):
                         {'Content-type': request.environ['CONTENT_TYPE']})
     #end _relay_request
 
-    def _ensure_project_exists(self, project_id):
-        project_name = self.manager.tenant_id_to_name(project_id)
-        project_obj = Project(project_name)
-        try:
-            id = self._vnc_lib.obj_to_id(project_obj)
-        except NoIdError:
-            # project doesn't exist, create it
-            self._vnc_lib.project_create(project_obj)
-
-        return project_obj
-    #end _ensure_project_exists
-
     def _ensure_vrouter_exists(self, vrouter_id):
         vrouter_name = "%s" %(vrouter_id)
         vrouter_obj = VirtualRouter(vrouter_name)
@@ -99,6 +86,7 @@ class DBInterface(object):
             id = self._vnc_lib.obj_to_id(instance_obj)
             instance_obj = self._vnc_lib.virtual_machine_read(id = id)
         except NoIdError: # instance doesn't exist, create it
+            instance_obj.uuid = instance_id
             self._vnc_lib.virtual_machine_create(instance_obj)
             vrouter_obj.add_virtual_machine(instance_obj)
             self._vnc_lib.virtual_router_update(vrouter_obj)
@@ -108,9 +96,9 @@ class DBInterface(object):
 
     # find projects on a given domain
     def _project_list_domain(self, domain_id):
-        # TODO resolve domain_id vs domain_name
-        domain_obj = Domain(domain_id)
-        resp_str = self._vnc_lib.projects_list(domain_obj)
+        # TODO till domain concept is not present in keystone
+        fq_name = ['default-domain']
+        resp_str = self._vnc_lib.projects_list(domain_fq_name = fq_name)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['projects']
@@ -118,34 +106,52 @@ class DBInterface(object):
 
     # find network ids on a given project
     def _network_list_project(self, project_id):
-        # TODO resolve project_id vs project_name
-        project_name = self.manager.tenant_id_to_name(project_id)
-        project_obj = Project(project_name)
-        resp_str = self._vnc_lib.virtual_networks_list(project_obj)
+        project_uuid = str(uuid.UUID(project_id))
+        resp_str = self._vnc_lib.virtual_networks_list(project_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['virtual-networks']
     #end _network_list_project
 
     def _ipam_list_project(self, project_id):
-        # TODO resolve project_id vs project_name
-        project_name = self.manager.tenant_id_to_name(project_id)
-        project_obj = Project(project_name)
-        resp_str = self._vnc_lib.network_ipams_list(project_obj)
+        resp_str = self._vnc_lib.network_ipams_list(project_id = project_id)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-ipams']
     #end _ipam_list_project
 
     def _policy_list_project(self, project_id):
-        # TODO resolve project_id vs project_name
-        project_name = self.manager.tenant_id_to_name(project_id)
-        project_obj = Project(project_name)
-        resp_str = self._vnc_lib.network_policys_list(project_obj)
+        resp_str = self._vnc_lib.network_policys_list(project_id = project_id)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-policys']
     #end _policy_list_project
+
+    # find floating ip pools a project has access to
+    def _fip_pool_refs_project(self, project_id):
+        project_uuid = str(uuid.UUID(project_id))
+        project_obj = self._vnc_lib.project_read(id = project_uuid)
+
+        return project_obj.get_floating_ip_pool_refs()
+    #end _fip_pool_refs_project
+
+    # find networks of floating ip pools project has access to
+    def _fip_pool_ref_networks(self, project_id):
+        ret_nets = []
+
+        proj_fip_pool_refs = self._fip_pool_refs_project(project_id)
+        if not proj_fip_pool_refs:
+            return ret_nets
+
+        for fip_pool_ref in proj_fip_pool_refs:
+            fq_name = fip_pool_ref['to']
+            fip_pool_obj = self._vnc_lib.floating_ip_pool_read(fq_name = fq_name)
+            fq_name = fip_pool_obj.get_parent_fq_name()
+            net_obj = self._vnc_lib.virtual_network_read(fq_name = fq_name)
+            ret_nets.append({'uuid': net_obj.uuid, 'fq_name': fq_name})
+
+        return ret_nets
+    #end _fip_pool_ref_networks
 
     # find port ids on a given network
     def _port_list_network(self, network_id):
@@ -268,10 +274,9 @@ class DBInterface(object):
     # Conversion routines between VNC and Quantum objects
     def _network_quantum_to_vnc(self, network_q, oper):
         net_name = network_q.get('name', None)
-        project_id = network_q.get('tenant_id', None)
-        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
-            project_obj = Project(project_name)
+            project_id = str(uuid.UUID(network_q['tenant_id']))
+            project_obj = self._vnc_lib.project_read(id = project_id)
             id_perms = IdPermsType(enable = True)
             net_obj = VirtualNetwork(net_name, project_obj, id_perms = id_perms)
         else: # READ/UPDATE/DELETE
@@ -423,10 +428,9 @@ class DBInterface(object):
 
     def _ipam_quantum_to_vnc(self, ipam_q, oper):
         ipam_name = ipam_q.get('name', None)
-        project_id = ipam_q.get('tenant_id', None)
-        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
-            project_obj = Project(project_name)
+            project_id = str(uuid.UUID(network_q['tenant_id']))
+            project_obj = self._vnc_lib.project_read(id = project_id)
             ipam_obj = NetworkIpam(ipam_name, project_obj)
         else: # READ/UPDATE/DELETE
             ipam_obj = self._vnc_lib.network_ipam_read(id = ipam_q['id'])
@@ -460,10 +464,9 @@ class DBInterface(object):
 
     def _policy_quantum_to_vnc(self, policy_q, oper):
         policy_name = policy_q.get('name', None)
-        project_id = policy_q.get('tenant_id', None)
-        project_name = self.manager.tenant_id_to_name(project_id)
         if oper == CREATE:
-            project_obj = Project(project_name)
+            project_id = str(uuid.UUID(policy_q['tenant_id']))
+            project_obj = self._vnc_lib.project_read(id = project_id)
             policy_obj = NetworkPolicy(policy_name, project_obj)
         else: # READ/UPDATE/DELETE
             policy_obj = self._vnc_lib.network_policy_read(id = policy_q['id'])
@@ -495,6 +498,38 @@ class DBInterface(object):
                 'q_extra_data': {}}
     #end _policy_vnc_to_quantum
 
+    def _floatingip_quantum_to_vnc(self, fip_q, oper):
+        if oper == CREATE:
+            net_id = fip_q['floating_network_id']
+            net_obj = self._network_read(net_id)
+            fip_name = str(uuid.uuid4())
+            fip_obj = FloatingIp(fip_name)
+            fip_obj.uuid = fip_name
+            fip_obj.set_virtual_network(net_obj)
+        else: # READ/UPDATE/DELETE
+            fip_obj = self._vnc_lib.floating_ip_read(id = fip_q['id'])
+
+        return fip_obj
+    #end _floatingip_quantum_to_vnc
+
+    def _floatingip_vnc_to_quantum(self, fip_obj):
+        fip_q_dict = {}
+        extra_dict = {}
+
+        fip_q_dict['id'] = fip_obj.uuid
+        net_fq_name = fip_obj.get_virtual_network_refs()[0]['to']
+        net_obj = self._vnc_lib.virtual_network_read(fq_name = net_fq_name)
+        fip_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
+        fip_q_dict['floating_ip_address'] = fip_obj.get_floating_ip_address()
+        fip_q_dict['floating_network_id'] = net_obj.uuid
+        fip_q_dict['router_id'] = None
+        fip_q_dict['fixed_port_id'] = None
+        fip_q_dict['fixed_ip_address'] = '' # TODO fill this?
+
+        return {'q_api_data': fip_q_dict,
+                'q_extra_data': extra_dict}
+    #end _floatingip_vnc_to_quantum
+
     def _port_quantum_to_vnc(self, port_q, net_obj, oper):
         if oper == CREATE:
             port_name = str(uuid.uuid4())
@@ -503,6 +538,7 @@ class DBInterface(object):
 
             id_perms = IdPermsType(enable = True)
             port_obj = VirtualMachineInterface(port_name, instance_obj, id_perms = id_perms)
+            port_obj.uuid = port_name
             port_obj.set_virtual_network(net_obj)
         else: # READ/UPDATE/DELETE
             port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_q['id'])
@@ -567,9 +603,7 @@ class DBInterface(object):
     # public methods
     # network api handlers
     def network_create(self, network_q):
-        # TODO remove below once api-server can read and create projects
-        # from keystone on startup
-        self._ensure_project_exists(network_q['tenant_id'])
+        #self._ensure_project_exists(network_q['tenant_id'])
        
         net_obj = self._network_quantum_to_vnc(network_q, CREATE)
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
@@ -604,29 +638,36 @@ class DBInterface(object):
 
         # collect phase
         all_nets = [] # all n/ws in all projects
-        if filters and filters.has_key('tenant_id'):
+        if filters and 'tenant_id' in filters:
             project_ids = filters['tenant_id']
             for p_id in project_ids:
-                project_nets = self._network_list_project(p_id)
-                all_nets.append(project_nets)
-        else: # no filters
+                if 'external' in filters:
+                    all_nets.append(self._fip_pool_ref_networks(p_id))
+                else:
+                    project_nets = self._network_list_project(p_id)
+                    all_nets.append(project_nets)
+        else:
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                proj_name = project['fq_name'][-1]
-                project_nets = self._network_list_project(proj_name)
-                all_nets.append(project_nets)
+                proj_id = project['uuid']
+                if filters and 'external' in filters:
+                    all_nets.append(self._fip_pool_ref_networks(proj_id))
+                else:
+                    project_nets = self._network_list_project(proj_id)
+                    all_nets.append(project_nets)
 
         # prune phase
         for project_nets in all_nets:
             for proj_net in project_nets:
-                # TODO implement same for name specified in filter
                 proj_net_id = proj_net['uuid']
                 if not self._filters_is_present(filters, 'id', proj_net_id):
                     continue
+
                 proj_net_fq_name = unicode(proj_net['fq_name'])
                 if not self._filters_is_present(filters, 'contrail:fq_name',
                                                 proj_net_fq_name):
                     continue
+
                 net_info = self.network_read(proj_net['uuid'])
                 ret_list.append(net_info)
 
@@ -768,7 +809,7 @@ class DBInterface(object):
     def ipam_create(self, ipam_q):
         # TODO remove below once api-server can read and create projects
         # from keystone on startup
-        self._ensure_project_exists(ipam_q['tenant_id'])
+        #self._ensure_project_exists(ipam_q['tenant_id'])
 
         ipam_obj = self._ipam_quantum_to_vnc(ipam_q, CREATE)
         ipam_uuid = self._vnc_lib.network_ipam_create(ipam_obj)
@@ -830,7 +871,7 @@ class DBInterface(object):
     def policy_create(self, policy_q):
         # TODO remove below once api-server can read and create projects
         # from keystone on startup
-        self._ensure_project_exists(policy_q['tenant_id'])
+        #self._ensure_project_exists(policy_q['tenant_id'])
 
         policy_obj = self._policy_quantum_to_vnc(policy_q, CREATE)
         policy_uuid = self._vnc_lib.network_policy_create(policy_obj)
@@ -888,6 +929,63 @@ class DBInterface(object):
         return ret_list
     #end policy_list
 
+    # floatingip api handlers
+    def floatingip_create(self, fip_q):
+        import pdb; pdb.set_trace()
+        fip_obj = self._floatingip_quantum_to_vnc(fip_q, CREATE)
+        fip_uuid = self._vnc_lib.floating_ip_create(fip_obj)
+        fip_obj = self._vnc_lib.floating_ip_read(id = fip_uuid)
+
+        return self._floatingip_vnc_to_quantum(fip_obj)
+    #end floatingip_create
+
+    def floatingip_read(self, fip_uuid):
+        fip_obj = self._vnc_lib.floating_ip_read(id = fip_uuid)
+
+        return self._floatingip_vnc_to_quantum(fip_obj)
+    #end floatingip_read
+
+    def floatingip_list(self, filters = None):
+        # Find networks, get floatingip backrefs and return
+        ret_list = []
+
+        # collect phase
+        all_nets = [] # all n/ws in all projects
+        if filters and filters.has_key('tenant_id'):
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_nets = self._network_list_project(p_id)
+                all_nets.append(project_nets)
+        else: # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                proj_id = project['uuid']
+                project_nets = self._network_list_project(proj_id)
+                all_nets.append(project_nets)
+
+        # prune phase
+        for project_nets in all_nets:
+            for proj_net in project_nets:
+                # TODO implement same for name specified in filter
+                proj_net_id = proj_net['uuid']
+                if not self._filters_is_present(filters, 'id', proj_net_id):
+                    continue
+                proj_net_fq_name = unicode(proj_net['fq_name'])
+                if not self._filters_is_present(filters, 'contrail:fq_name',
+                                                proj_net_fq_name):
+                    continue
+                net_obj = self._network_read(proj_net['uuid'])
+                
+                fip_back_refs = net_obj.get_floating_ip_back_refs()
+                if fip_back_refs:
+                    import pdb; pdb.set_trace()
+                    for fip_back_ref in fip_back_refs:
+                        fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
+                        ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
+
+        return ret_list
+    #end floatingip_list
+
     # port api handlers
     def port_create(self, port_q):
         # TODO check for duplicate add and return
@@ -903,6 +1001,7 @@ class DBInterface(object):
         # initialize ip object
         ip_name = str(uuid.uuid4())
         ip_obj = InstanceIp(name = ip_name)
+        ip_obj.uuid = ip_name
         ip_obj.set_virtual_machine_interface(port_obj)
         ip_obj.set_virtual_network(net_obj)
 
@@ -979,7 +1078,7 @@ class DBInterface(object):
                 vm_obj = self._vnc_lib.virtual_machine_read(id = vm_id)
             except NoIdError:
                 continue
-            resp_str = self._vnc_lib.virtual_machine_interfaces_list(vm_obj)
+            resp_str = self._vnc_lib.virtual_machine_interfaces_list(virtual_machine_id = vm_id)
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:

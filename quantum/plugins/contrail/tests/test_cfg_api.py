@@ -1,4 +1,7 @@
 from ginkgo import Service
+from fabric.api import env
+from fabric.api import run
+from fabric.context_managers import settings
 
 import eventlet
 import os
@@ -26,13 +29,20 @@ from quantumclient.common import exceptions
 
 CASS_SVR_IP = '127.0.0.1'
 CASS_SVR_PORT = '9160'
+
 ZK_SVR_IP = '127.0.0.1'
 ZK_SVR_PORT = '2181'
+
+KEYSTONE_SVR_IP = '127.0.0.1'
+KEYSTONE_SVR_PORT = '5000'
+
 IFMAP_SVR_IP = '127.0.0.1'
 IFMAP_SVR_PORT = '8443'
 # publish user
-IFMAP_SVR_USER = 'test'
-IFMAP_SVR_PASSWD = 'test'
+#IFMAP_SVR_USER = 'test'
+#IFMAP_SVR_PASSWD = 'test'
+IFMAP_SVR_USER = 'control-node-3'
+IFMAP_SVR_PASSWD = 'control-node-3'
 # subscribe users
 IFMAP_SVR_USER2 = 'test2'
 IFMAP_SVR_PASSWD2 = 'test2'
@@ -41,16 +51,24 @@ IFMAP_SVR_PASSWD3 = 'test3'
 
 API_SVR_IP = '127.0.0.1'
 API_SVR_PORT = '8082'
+
 QUANTUM_SVR_IP = '127.0.0.1'
 QUANTUM_SVR_PORT = '9696'
+
+BGP_SVR_IP = '127.0.0.1'
 BGP_SVR_PORT = '9023'
 BGP_SANDESH_PORT = '9024'
 
-IFMAP_SVR_LOC='/home/stack/source/ifmap-server/'
+ZK_LOC='/home/contrail/source/zookeeper-3.4.4/'
+KEYSTONE_LOC='/opt/stack/keystone/'
+IFMAP_SVR_LOC='/home/contrail/source/ifmap-server/'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
 #SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
 SCHEMA_TRANSFORMER_LOC='/home/contrail/source/ctrlplane/src/cfgm/schema-transformer/'
-BGP_SVR_ROOT='/home/contrail/source/ctrlplane/'
+CTRLPLANE_ROOT='/home/contrail/source/ctrlplane'
+BGP_SVR_ROOT=CTRLPLANE_ROOT
+KLM_LOC=CTRLPLANE_ROOT + '/src/vnsw/dp/'
+AGENT_LOC=CTRLPLANE_ROOT + '/build/debug/vnsw/agent/'
 
 class CRUDTestCase(unittest.TestCase):
     def setUp(self):
@@ -65,6 +83,9 @@ class CRUDTestCase(unittest.TestCase):
         OS_URL = 'http://%s:%s/' %(QUANTUM_SVR_IP, QUANTUM_SVR_PORT)
         OS_TOKEN = httpclient.auth_token
         self._quantum = client.Client('2.0', endpoint_url=OS_URL, token = OS_TOKEN)
+
+        self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
+                               API_SVR_IP, API_SVR_PORT, '/')
     #end setUp
         
     def _test_network(self):
@@ -102,7 +123,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for network in net_rsp['networks']])
     #end test_network
 
-    def test_subnet(self):
+    def _test_subnet(self):
         # Create; Verify with show + list 
         param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
         nets = self._quantum.list_networks(**param)['networks']
@@ -204,7 +225,6 @@ class CRUDTestCase(unittest.TestCase):
         pol_entries_dict = \
             json.loads(json.dumps(pol_entries,
                             default=lambda o: {k:v for k, v in o.__dict__.iteritems()}))
-        import pdb; pdb.set_trace()
         policy_req = {'name': 'pol1',
                       'entries': pol_entries_dict}
         
@@ -229,21 +249,9 @@ class CRUDTestCase(unittest.TestCase):
     #end test_policy
 
     def _test_policy_link_vns(self):
-        print "Creating network VN1, subnet 10.1.1.0/24"
-        net_req = {'name': 'vn1'}
-        net_rsp = self._quantum.create_network({'network': net_req})
-        net1_id = net_rsp['network']['id']
-        net1_fq_name = net_rsp['network']['contrail:fq_name']
+        net1_id, net2_id, net1_fq_name, net2_fq_name = self._create_two_vns()
         net1_fq_name_str = ':'.join(net1_fq_name)
-        self._create_subnet(u'10.1.1.0/24', net1_id)
-
-        print "Creating network VN2, subnet 20.1.1.0/24"
-        net_req = {'name': 'vn2'}
-        net_rsp = self._quantum.create_network({'network': net_req})
-        net2_id = net_rsp['network']['id']
-        net2_fq_name = net_rsp['network']['contrail:fq_name']
         net2_fq_name_str = ':'.join(net2_fq_name)
-        self._create_subnet(u'20.1.1.0/24', net2_id)
 
         print "Creating policy pol1"
         np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
@@ -295,6 +303,50 @@ class CRUDTestCase(unittest.TestCase):
 
     #end test_policy_link_vns
 
+    def test_floating_ip(self):
+        net1_id, net2_id, net1_fq_name, net2_fq_name = \
+                 self._create_two_vns('pvt-vn', 'pub-vn')
+
+        # create floating ip pool from public network
+        pub_vn_obj = self._vnc_lib.virtual_network_read(id = net2_id)
+        fip_pool_obj = FloatingIpPool(virtual_network_obj = pub_vn_obj)
+        self._vnc_lib.floating_ip_pool_create(fip_pool_obj)
+
+        # allow current project to pick from pool
+        proj_fq_name = ['default-domain', 'admin']
+        proj_obj = self._vnc_lib.project_read(fq_name = proj_fq_name)
+        proj_obj.add_floating_ip_pool(fip_pool_obj)
+        self._vnc_lib.project_update(proj_obj)
+
+        # list pools available for current project
+        self._quantum.list_networks(external = True)
+    #end test_floating_ip
+
+    def _create_two_vns(self, vn1_name = None, vn2_name = None):
+        if not vn1_name:
+            vn1_name = 'vn1'
+        if not vn2_name:
+            vn2_name = 'vn2'
+
+        print "Creating network %s, subnet 10.1.1.0/24" %(vn1_name)
+        net_req = {'name': vn1_name}
+        net_rsp = self._quantum.create_network({'network': net_req})
+        net1_id = net_rsp['network']['id']
+        net1_fq_name = net_rsp['network']['contrail:fq_name']
+        net1_fq_name_str = ':'.join(net1_fq_name)
+        self._create_subnet(u'10.1.1.0/24', net1_id)
+
+        print "Creating network %s, subnet 20.1.1.0/24" %(vn2_name)
+        net_req = {'name': vn2_name}
+        net_rsp = self._quantum.create_network({'network': net_req})
+        net2_id = net_rsp['network']['id']
+        net2_fq_name = net_rsp['network']['contrail:fq_name']
+        net2_fq_name_str = ':'.join(net2_fq_name)
+        self._create_subnet(u'20.1.1.0/24', net2_id)
+
+        return net1_id, net2_id, net1_fq_name, net2_fq_name
+    #end _create_two_vns
+
     def _create_subnet(self, cidr, net_id, ipam_fq_name = None):
         if not ipam_fq_name:
             ipam_fq_name = NetworkIpam().get_fq_name()
@@ -313,17 +365,28 @@ class CRUDTestCase(unittest.TestCase):
 
 class TestBench(Service):
     def __init__(self):
+        self._keystone_server = None
         self._ifmap_server = None
         self._quantum_server = None
+        self._klm_loaded = False
+
+        self.compute_nodes = [
+              ({'mgmt_ip': '192.168.122.99', 'vhost_ip': '192.168.100.3'}),
+              #({'mgmt_ip': '192.168.122.161', 'vhost_ip': '192.168.100.4'}),
+        ]
     #end __init__
 
     def do_start(self):
+        self.spawn(self.launch_zookeeper)
+        #self.spawn(self.launch_keystone)
         self.spawn(self.launch_ifmap_server)
         self.spawn(self.launch_api_server)
         self.spawn(self.launch_quantum_plugin)
-        self.spawn(self.launch_schema_transformer)
+        #self.spawn(self.launch_schema_transformer)
         #self.spawn(self.launch_bgp_server)
-        self.spawn(self.launch_unit_tests)
+        #self.spawn(self.launch_klms)
+        #self.spawn(self.launch_agents)
+        self.spawn(self.launch_tests)
     #end do_start
 
     def do_reload(self):
@@ -331,18 +394,36 @@ class TestBench(Service):
     #end do_reload
 
     def do_stop(self):
+        if self._keystone_server:
+            self._keystone_server.kill()
         if self._ifmap_server:
             self._ifmap_server.kill()
         if self._quantum_server:
             self._quantum_server.kill()
+        if self._bgp_server:
+            self._bgp_server.kill()
     #end do_stop
+
+    def launch_zookeeper(self):
+        subprocess.Popen([ZK_LOC + '/bin/zkServer.sh', 'start'])
+    #end launch_zookeeper
+
+    def launch_keystone(self):
+        self._ensure_port_not_listened(KEYSTONE_SVR_IP, KEYSTONE_SVR_PORT)
+        logf_out = open('keystone.out', 'w')
+        logf_err = open('keystone.err', 'w')
+        keystone = subprocess.Popen([KEYSTONE_LOC + '/bin/keystone-all', '--config-file',
+                       os.getcwd() + '/keystone.conf', '-d', '--debug'],
+                       stdout = logf_out, stderr = logf_err) 
+        self._keystone_server = keystone
+    #end launch_keystone
 
     def launch_ifmap_server(self):
         self._ensure_port_not_listened(IFMAP_SVR_IP, IFMAP_SVR_PORT)
         logf_out = open('ifmap-server.out', 'w')
         logf_err = open('ifmap-server.err', 'w')
         maps = subprocess.Popen(['java', '-jar', 'build/irond.jar'],
-                                cwd=IFMAP_SVR_LOC, stdout = None, stderr = None) 
+                   cwd=IFMAP_SVR_LOC, stdout = logf_out, stderr = logf_err) 
         self._ifmap_server = maps
     #end launch_ifmap_server
 
@@ -351,12 +432,12 @@ class TestBench(Service):
         # Wait for IFMAP server to be running before launching api server
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
-        args_str = '%s %s %s %s %s %s' %(IFMAP_SVR_IP,
-                                         IFMAP_SVR_PORT,
-                                         IFMAP_SVR_USER,
-                                         IFMAP_SVR_PASSWD,
-                                         CASS_SVR_IP,
-                                         CASS_SVR_PORT)
+        args_str = '--auth keystone %s %s %s %s %s %s' %(IFMAP_SVR_IP,
+                                                         IFMAP_SVR_PORT,
+                                                         IFMAP_SVR_USER,
+                                                         IFMAP_SVR_PASSWD,
+                                                         CASS_SVR_IP,
+                                                         CASS_SVR_PORT)
         vnc_cfg_api_server.main(args_str)
     #end launch_api_server
 
@@ -388,31 +469,78 @@ class TestBench(Service):
         # Wait for IFMAP server to be running before launching bgp server 
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
-        bgp_server = subprocess.Popen([ './build/debug/bgp/control-node',
+        logf_out = open('bgp-server.out', 'w')
+        logf_err = open('bgp-server.err', 'w')
+        bgp_server = subprocess.Popen(['./build/debug/control-node/control-node',
             '--map-server-url', 'https://%s:%s' %(IFMAP_SVR_IP, IFMAP_SVR_PORT),
             '--map-user', IFMAP_SVR_USER3, '--map-password', IFMAP_SVR_PASSWD3,
             '--bgp-port', BGP_SVR_PORT, '--sandesh-port', BGP_SANDESH_PORT],
-            cwd = BGP_SVR_ROOT, env = {'LD_LIBRARY_PATH': '%s/build/lib' %(BGP_SVR_ROOT)})
+            cwd = BGP_SVR_ROOT, env = {'LD_LIBRARY_PATH': '%s/build/lib' %(BGP_SVR_ROOT)},
+            stdout = logf_out, stderr = logf_err)
+
         self._bgp_server = bgp_server
     #end launch_bgp_server
 
-    def launch_unit_tests(self):
+    def launch_klms(self):
+        env.password="contrail123"
+        env.host_string = "192.168.122.161:22"
+
+        mgmt_ips = [cnode['mgmt_ip'] for cnode in self.compute_nodes]
+        for cn_ip in mgmt_ips:
+            with settings(password = "contrail123",
+                          host_string = "%s:22" %(cn_ip),
+                          warn_only = True):
+                # kill agent + unload klm
+                run("ps auxw | grep vnswad | grep -v grep | awk '{ print $2 '} | xargs sudo kill -9")
+                run("sudo rmmod vrouter")
+
+        # and launch new instance of klm
+        for cn_ip in mgmt_ips:
+            with settings(password = "contrail123",
+                          host_string = "%s:22" %(cn_ip)):
+                run("LD_LIBRARY_PATH=%s/utils sudo -E insmod %s/vrouter.ko" %(KLM_LOC, KLM_LOC))
+
+        self._klm_loaded = True
+    #end launch_klms
+
+    def launch_agents(self):
+        # Wait for BGP server to be running before launching agents
+        self._block_till_port_listened('bgp-server', BGP_SVR_IP, BGP_SVR_PORT)
+
+        # Wait till kernel modules are loaded
+        while not self._klm_loaded:
+            print "KLM not loaded, retrying in 2 secs"
+            time.sleep(2)
+
+        cn_ips = [(cnode['mgmt_ip'], cnode['vhost_ip']) for cnode in self.compute_nodes]
+        for mgmt_ip, vhost_ip in cn_ips:
+            with settings(user = "root",
+                          password = "contrail123",
+                          host_string = "%s:22" %(mgmt_ip)):
+                run("LD_LIBRARY_PATH=%s/build/lib:%s/utils nohup %s/vnswad -c %s/vnswa_cfg.xml >& /tmp/agent-out < /dev/null &" 
+                     %(CTRLPLANE_ROOT, KLM_LOC, AGENT_LOC, CTRLPLANE_ROOT), pty = False)
+                run("ifconfig vhost0 %s/24" %(vhost_ip))
+                run("route add -net 169.254.0.0 netmask 255.255.0.0 vhost0")
+                run("ifconfig eth1 up")
+    #end launch_agents
+
+    def launch_tests(self):
         self._block_till_port_listened('quantum-server', QUANTUM_SVR_IP,
                                                          QUANTUM_SVR_PORT)
  
         del sys.argv[1:]
         suite1 = unittest.TestLoader().loadTestsFromTestCase(CRUDTestCase)
+
         #all_tests = unittest.TestSuite([suite1])
         #unittest.main(defaultTest=all_tests)
         unittest.TextTestRunner(verbosity=2).run(suite1)
-    #end launch_unit_tests
+    #end launch_tests
 
     def _ensure_port_not_listened(self, server_ip, server_port):
         try:
             s = socket.create_connection((server_ip, server_port))
             s.close()
-            raise Exception("IP %s port %d already listened on" 
-                             %(server_ip, server_port))
+            print "IP %s port %s already listened on" %(server_ip, server_port)
         except Exception as err:
             if err.errno == errno.ECONNREFUSED:
                 return # all is well
