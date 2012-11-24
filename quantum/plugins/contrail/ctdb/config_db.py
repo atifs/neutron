@@ -931,7 +931,6 @@ class DBInterface(object):
 
     # floatingip api handlers
     def floatingip_create(self, fip_q):
-        import pdb; pdb.set_trace()
         fip_obj = self._floatingip_quantum_to_vnc(fip_q, CREATE)
         fip_uuid = self._vnc_lib.floating_ip_create(fip_obj)
         fip_obj = self._vnc_lib.floating_ip_read(id = fip_uuid)
@@ -978,7 +977,6 @@ class DBInterface(object):
                 
                 fip_back_refs = net_obj.get_floating_ip_back_refs()
                 if fip_back_refs:
-                    import pdb; pdb.set_trace()
                     for fip_back_ref in fip_back_refs:
                         fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
                         ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))

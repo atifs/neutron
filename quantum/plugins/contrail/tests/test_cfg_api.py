@@ -320,6 +320,13 @@ class CRUDTestCase(unittest.TestCase):
 
         # list pools available for current project
         self._quantum.list_networks(external = True)
+
+        # allocate couple of floating ips
+        for i in range(2):
+            fip_req = {'floatingip': {'floating_network_id': net2_id}}
+            fip_resp = self._quantum.create_floatingip(fip_req)
+            print "Got floating-ip %s" %(fip_resp['floatingip']['floating_ip_address'])
+
     #end test_floating_ip
 
     def _create_two_vns(self, vn1_name = None, vn2_name = None):
