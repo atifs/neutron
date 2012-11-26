@@ -24,6 +24,11 @@ import ctdb.config_db
 
 LOG = logging.getLogger(__name__)
 
+vnc_opts = [
+    cfg.StrOpt('api_server_ip', default = '127.0.0.1'),
+    cfg.StrOpt('api_server_port', default = '8082'),
+]
+
 def _read_cfg(cfg_parser, section, option, default):
         try:
             val = cfg_parser.get(section, option)
@@ -67,10 +72,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 	"""
 	if cls._cfgdb is None:
             # Initialize connection to DB and add default entries
-            """
-            .. attention:: TODO pick vals below from config
-            """
-            cls._cfgdb = ctdb.config_db.DBInterface('127.0.0.1', '8082')
+            cls._cfgdb = ctdb.config_db.DBInterface(cfg.CONF.vnc.api_server_ip,
+                                                    cfg.CONF.vnc.api_server_port)
             # TODO Treat the 2 DBs as logically separate? (same backend for now)
             cls._operdb = cls._cfgdb
             
@@ -105,6 +108,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     #end _tenant_list_from_keystone
 
     def __init__(self):
+        cfg.CONF.register_opts(vnc_opts, 'vnc')
+
         cfg_parser = ConfigParser.ConfigParser()
         ContrailPlugin._parse_class_args(cfg_parser)
 

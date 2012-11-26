@@ -49,8 +49,10 @@ IFMAP_SVR_PASSWD2 = 'test2'
 IFMAP_SVR_USER3 = 'test3'
 IFMAP_SVR_PASSWD3 = 'test3'
 
-API_SVR_IP = '127.0.0.1'
-API_SVR_PORT = '8082'
+#API_SVR_IP = '127.0.0.1'
+#API_SVR_PORT = '8082'
+API_SVR_IP = '10.1.2.195'
+API_SVR_PORT = '8083'
 
 QUANTUM_SVR_IP = '127.0.0.1'
 QUANTUM_SVR_PORT = '9696'
@@ -88,7 +90,7 @@ class CRUDTestCase(unittest.TestCase):
                                API_SVR_IP, API_SVR_PORT, '/')
     #end setUp
         
-    def _test_network(self):
+    def test_network(self):
         # Create; Verify with show + list 
         net_name = 'vn1'
         net_req = {'name': net_name}
@@ -123,7 +125,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for network in net_rsp['networks']])
     #end test_network
 
-    def _test_subnet(self):
+    def test_subnet(self):
         # Create; Verify with show + list 
         param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
         nets = self._quantum.list_networks(**param)['networks']
@@ -216,7 +218,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for port in port_rsp['ports']])
     #end test_port
 
-    def _test_policy(self):
+    def test_policy(self):
         print "Creating policy pol1"
         np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
                         [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
@@ -248,7 +250,7 @@ class CRUDTestCase(unittest.TestCase):
         policy_rsp = self._quantum.update_policy(policy1_id, {'policy': policy_req})
     #end test_policy
 
-    def _test_policy_link_vns(self):
+    def test_policy_link_vns(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = self._create_two_vns()
         net1_fq_name_str = ':'.join(net1_fq_name)
         net2_fq_name_str = ':'.join(net2_fq_name)
@@ -395,11 +397,11 @@ class TestBench(Service):
         self.spawn(self.launch_ifmap_server)
         self.spawn(self.launch_api_server)
         self.spawn(self.launch_quantum_plugin)
-        #self.spawn(self.launch_schema_transformer)
-        #self.spawn(self.launch_bgp_server)
-        #self.spawn(self.launch_klms)
-        #self.spawn(self.launch_agents)
-        #self.spawn(self.launch_tests)
+        self.spawn(self.launch_schema_transformer)
+        self.spawn(self.launch_bgp_server)
+        self.spawn(self.launch_klms)
+        self.spawn(self.launch_agents)
+        self.spawn(self.launch_tests)
     #end do_start
 
     def do_reload(self):
@@ -445,12 +447,14 @@ class TestBench(Service):
         # Wait for IFMAP server to be running before launching api server
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
-        args_str = '--auth keystone %s %s %s %s %s %s' %(IFMAP_SVR_IP,
-                                                         IFMAP_SVR_PORT,
-                                                         IFMAP_SVR_USER,
-                                                         IFMAP_SVR_PASSWD,
-                                                         CASS_SVR_IP,
-                                                         CASS_SVR_PORT)
+        args_str = '--auth keystone --reset-config'
+        args_str = args_str + ' --listen-ip-addr %s --listen-port %s' %(API_SVR_IP, API_SVR_PORT)
+        args_str = args_str + ' %s %s %s %s %s %s' %(IFMAP_SVR_IP,
+                                                     IFMAP_SVR_PORT,
+                                                     IFMAP_SVR_USER,
+                                                     IFMAP_SVR_PASSWD,
+                                                     CASS_SVR_IP,
+                                                     CASS_SVR_PORT)
         vnc_cfg_api_server.main(args_str)
     #end launch_api_server
 

@@ -106,7 +106,11 @@ class DBInterface(object):
 
     # find network ids on a given project
     def _network_list_project(self, project_id):
-        project_uuid = str(uuid.UUID(project_id))
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" %(project_id) 
+
         resp_str = self._vnc_lib.virtual_networks_list(project_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
