@@ -153,6 +153,14 @@ class DBInterface(object):
         return ret_nets
     #end _fip_pool_ref_networks
 
+    # find floating ip pools defined by network
+    def _fip_pool_list_network(self, net_id):
+        resp_str = self._vnc_lib.floating_ip_pools_list(virtual_network_id = net_id)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['floating-ip-pools']
+    #end _fip_pool_list_network
+
     # find port ids on a given network
     def _port_list_network(self, network_id):
         ret_list = []
@@ -500,14 +508,24 @@ class DBInterface(object):
 
     def _floatingip_quantum_to_vnc(self, fip_q, oper):
         if oper == CREATE:
+            # TODO for now create from default pool, later
+            # use first available pool on net
             net_id = fip_q['floating_network_id']
-            net_obj = self._network_read(net_id)
+            fq_name = self._fip_pool_list_network(net_id)[0]['fq_name']
+            fip_pool_obj = self._vnc_lib.floating_ip_pool_read(fq_name = fq_name)
             fip_name = str(uuid.uuid4())
-            fip_obj = FloatingIp(fip_name)
+            fip_obj = FloatingIp(fip_name, fip_pool_obj)
             fip_obj.uuid = fip_name
-            fip_obj.set_virtual_network(net_obj)
+
+            proj_id = str(uuid.UUID(fip_q['tenant_id']))
+            proj_obj = self._vnc_lib.project_read(id = proj_id)
+            fip_obj.set_project(proj_obj)
         else: # READ/UPDATE/DELETE
             fip_obj = self._vnc_lib.floating_ip_read(id = fip_q['id'])
+
+        if fip_q['port_id']:
+            port_obj = self._vnc_lib.virtual_machine_interface_read(id = fip_q['port_id'])
+            fip_obj.set_virtual_machine_interface(port_obj)
 
         return fip_obj
     #end _floatingip_quantum_to_vnc
@@ -516,15 +534,29 @@ class DBInterface(object):
         fip_q_dict = {}
         extra_dict = {}
 
+        fq_name = fip_obj.get_parent_fq_name()
+        fip_pool_obj = self._vnc_lib.floating_ip_pool_read(fq_name = fq_name)
+
+        fq_name = fip_pool_obj.get_parent_fq_name()
+        net_obj = self._vnc_lib.virtual_network_read(fq_name = fq_name)
+
+        fq_name = fip_obj.get_project_refs()[0]['to']
+        proj_obj = self._vnc_lib.project_read(fq_name = fq_name)
+
+        port_id = None
+        port_refs = fip_obj.get_virtual_machine_interface_refs()
+        if port_refs:
+            fq_name = fip_obj.get_virtual_machine_interface_refs()[0]['to']
+            port_obj = self._vnc_lib.virtual_machine_interface_read(fq_name = fq_name)
+            port_id = port_obj.uuid
+
         fip_q_dict['id'] = fip_obj.uuid
-        net_fq_name = fip_obj.get_virtual_network_refs()[0]['to']
-        net_obj = self._vnc_lib.virtual_network_read(fq_name = net_fq_name)
-        fip_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
+        fip_q_dict['tenant_id'] = proj_obj.uuid
         fip_q_dict['floating_ip_address'] = fip_obj.get_floating_ip_address()
         fip_q_dict['floating_network_id'] = net_obj.uuid
         fip_q_dict['router_id'] = None
-        fip_q_dict['fixed_port_id'] = None
-        fip_q_dict['fixed_ip_address'] = '' # TODO fill this?
+        fip_q_dict['fixed_port_id'] = port_id
+        fip_q_dict['fixed_ip_address'] = None
 
         return {'q_api_data': fip_q_dict,
                 'q_extra_data': extra_dict}
@@ -944,42 +976,38 @@ class DBInterface(object):
         return self._floatingip_vnc_to_quantum(fip_obj)
     #end floatingip_read
 
+    def floatingip_update(self, fip_id, fip_q):
+        import pdb; pdb.set_trace()
+        fip_q['id'] = fip_id
+        fip_obj = self._floatingip_quantum_to_vnc(fip_q, UPDATE)
+        self._vnc_lib.floating_ip_update(fip_obj)
+
+        return self._floatingip_vnc_to_quantum(fip_obj)
+    #end floatingip_update
+
+    def floatingip_delete(self, fip_id):
+        self._vnc_lib.floating_ip_delete(id = fip_id)
+    #end floatingip_delete
+
     def floatingip_list(self, filters = None):
         # Find networks, get floatingip backrefs and return
         ret_list = []
 
-        # collect phase
-        all_nets = [] # all n/ws in all projects
         if filters and filters.has_key('tenant_id'):
-            project_ids = filters['tenant_id']
-            for p_id in project_ids:
-                project_nets = self._network_list_project(p_id)
-                all_nets.append(project_nets)
+            proj_ids = [str(uuid.UUID(id)) for id in filters['tenant_id']]
         else: # no filters
             dom_projects = self._project_list_domain(None)
-            for project in dom_projects:
-                proj_id = project['uuid']
-                project_nets = self._network_list_project(proj_id)
-                all_nets.append(project_nets)
+            proj_ids = [proj['uuid'] for proj in dom_projects]
 
-        # prune phase
-        for project_nets in all_nets:
-            for proj_net in project_nets:
-                # TODO implement same for name specified in filter
-                proj_net_id = proj_net['uuid']
-                if not self._filters_is_present(filters, 'id', proj_net_id):
-                    continue
-                proj_net_fq_name = unicode(proj_net['fq_name'])
-                if not self._filters_is_present(filters, 'contrail:fq_name',
-                                                proj_net_fq_name):
-                    continue
-                net_obj = self._network_read(proj_net['uuid'])
-                
-                fip_back_refs = net_obj.get_floating_ip_back_refs()
-                if fip_back_refs:
-                    for fip_back_ref in fip_back_refs:
-                        fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
-                        ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
+        # TODO optimize to read only fip back refs
+        proj_objs = [self._vnc_lib.project_read(id = id) for id in proj_ids]
+        for proj_obj in proj_objs:
+            fip_back_refs = proj_obj.get_floating_ip_back_refs()
+            if not fip_back_refs:
+                continue
+            for fip_back_ref in fip_back_refs:
+                fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
+                ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
 
         return ret_list
     #end floatingip_list

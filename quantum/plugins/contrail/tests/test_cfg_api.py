@@ -309,23 +309,29 @@ class CRUDTestCase(unittest.TestCase):
 
         # create floating ip pool from public network
         pub_vn_obj = self._vnc_lib.virtual_network_read(id = net2_id)
-        fip_pool_obj = FloatingIpPool(virtual_network_obj = pub_vn_obj)
+        fip_pool_obj = FloatingIpPool('pub-fip-pool', pub_vn_obj)
         self._vnc_lib.floating_ip_pool_create(fip_pool_obj)
 
         # allow current project to pick from pool
-        proj_fq_name = ['default-domain', 'admin']
+        proj_fq_name = ['default-domain', 'demo']
         proj_obj = self._vnc_lib.project_read(fq_name = proj_fq_name)
         proj_obj.add_floating_ip_pool(fip_pool_obj)
         self._vnc_lib.project_update(proj_obj)
 
         # list pools available for current project
-        self._quantum.list_networks(external = True)
+        fip_pool_nets = self._quantum.list_networks(external = True)
+        fip_pool_net_id = fip_pool_nets['networks'][0]['id']
 
         # allocate couple of floating ips
         for i in range(2):
-            fip_req = {'floatingip': {'floating_network_id': net2_id}}
+            fip_req = {'floatingip': {'floating_network_id': fip_pool_net_id,
+                                      'tenant_id': proj_obj.uuid} }
             fip_resp = self._quantum.create_floatingip(fip_req)
             print "Got floating-ip %s" %(fip_resp['floatingip']['floating_ip_address'])
+
+        # list floating ips available for current project
+        fip_list = self._quantum.list_floatingips(tenant_id = proj_obj.uuid)
+        print "Floating IP list: " + pformat(fip_list)
 
     #end test_floating_ip
 
@@ -393,7 +399,7 @@ class TestBench(Service):
         #self.spawn(self.launch_bgp_server)
         #self.spawn(self.launch_klms)
         #self.spawn(self.launch_agents)
-        self.spawn(self.launch_tests)
+        #self.spawn(self.launch_tests)
     #end do_start
 
     def do_reload(self):

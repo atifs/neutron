@@ -465,16 +465,33 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         return fip_dict
     #end create_floatingip
 
-    def update_floatingip(self, context, id, floatingip):
-        pass
+    def update_floatingip(self, context, fip_id, floatingip):
+        fip_info = self._cfgdb.floatingip_update(fip_id, floatingip['floatingip'])
+
+        # verify transformation is conforming to api
+        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+        fip_dict.update(fip_info['q_extra_data'])
+
+        print "update_floatingip(): " + pformat(fip_dict) + "\n"
+        return fip_dict
     #end update_floatingip
 
     def get_floatingip(self, context, id, fields=None):
-        pass
+        fip_info = self._cfgdb.floatingip_read(id)
+
+        # verify transformation is conforming to api
+        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+        fip_dict.update(fip_info['q_extra_data'])
+
+        print "get_floatingip(): " + pformat(fip_dict) + "\n"
+        return fip_dict
     #end get_floatingip
 
-    def delete_floatingip(self, context, id):
-        pass
+    def delete_floatingip(self, context, fip_id):
+        self._cfgdb.floatingip_delete(fip_id)
+        print "delete_floating(): " + pformat(fip_id) + "\n"
     #end delete_floatingip
 
     def get_floatingips(self, context, filters=None, fields=None):
