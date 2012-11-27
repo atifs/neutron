@@ -39,20 +39,16 @@ KEYSTONE_SVR_PORT = '5000'
 IFMAP_SVR_IP = '127.0.0.1'
 IFMAP_SVR_PORT = '8443'
 # publish user
-#IFMAP_SVR_USER = 'test'
-#IFMAP_SVR_PASSWD = 'test'
-IFMAP_SVR_USER = 'control-node-3'
-IFMAP_SVR_PASSWD = 'control-node-3'
+IFMAP_SVR_USER = 'test'
+IFMAP_SVR_PASSWD = 'test'
 # subscribe users
 IFMAP_SVR_USER2 = 'test2'
 IFMAP_SVR_PASSWD2 = 'test2'
 IFMAP_SVR_USER3 = 'test3'
 IFMAP_SVR_PASSWD3 = 'test3'
 
-#API_SVR_IP = '127.0.0.1'
-#API_SVR_PORT = '8082'
-API_SVR_IP = '10.1.2.195'
-API_SVR_PORT = '8083'
+API_SVR_IP = '127.0.0.1'
+API_SVR_PORT = '8082'
 
 QUANTUM_SVR_IP = '127.0.0.1'
 QUANTUM_SVR_PORT = '9696'
@@ -65,8 +61,7 @@ ZK_LOC='/home/contrail/source/zookeeper-3.4.4/'
 KEYSTONE_LOC='/opt/stack/keystone/'
 IFMAP_SVR_LOC='/home/contrail/source/ifmap-server/'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
-#SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
-SCHEMA_TRANSFORMER_LOC='/home/contrail/source/ctrlplane/src/cfgm/schema-transformer/'
+SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
 CTRLPLANE_ROOT='/home/contrail/source/ctrlplane'
 BGP_SVR_ROOT=CTRLPLANE_ROOT
 KLM_LOC=CTRLPLANE_ROOT + '/src/vnsw/dp/'
@@ -90,7 +85,7 @@ class CRUDTestCase(unittest.TestCase):
                                API_SVR_IP, API_SVR_PORT, '/')
     #end setUp
         
-    def test_network(self):
+    def _test_network(self):
         # Create; Verify with show + list 
         net_name = 'vn1'
         net_req = {'name': net_name}
@@ -125,7 +120,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for network in net_rsp['networks']])
     #end test_network
 
-    def test_subnet(self):
+    def _test_subnet(self):
         # Create; Verify with show + list 
         param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
         nets = self._quantum.list_networks(**param)['networks']
@@ -147,6 +142,41 @@ class CRUDTestCase(unittest.TestCase):
         self.assertEqual(subnet_gw, gw)
 
     #end test_subnet
+
+    def test_ipam(self):
+        print "Creating ipam with ipam1"
+        ipam_name = 'ipam1'
+        ipam_req = {'name': ipam_name}
+        ipam_rsp = self._quantum.create_ipam({'ipam': ipam_req})
+        #ipam_admin_state = ipam_rsp['ipam']['admin_state_up']
+
+        # Read
+        ipam_id = ipam_rsp['ipam']['id']
+        ipam_rsp = self._quantum.show_ipam(ipam_id)
+        self.assertEqual(ipam_rsp['ipam']['name'], ipam_name)
+
+        ipam_rsp = self._quantum.list_ipams()
+        self.assertTrue(ipam_name in [ipam['name'] \
+                                     for ipam in ipam_rsp['ipams']])
+
+        # TODO Update property
+        #ipam_req = {'admin_state_up': not ipam_admin_state}
+        #ipam_rsp = self._quantum.update_ipam(ipam_id, {'ipam': ipam_req})
+        #self.assertNotEqual(ipam_admin_state,
+        #                    ipam_rsp['ipam']['admin_state_up'])
+ 
+        # Delete; Verify with show + list
+        self._quantum.delete_ipam(ipam_id)
+
+        with self.assertRaisesRegexp(exceptions.QuantumClientException,
+                                     'could not be found') as e:
+            self._quantum.show_ipam(ipam_id)
+
+        ipam_rsp = self._quantum.list_ipams()
+        self.assertFalse(ipam_name in [ipam['name'] \
+                                     for ipam in ipam_rsp['ipams']])
+
+    #end test_ipam
 
     def _test_same_name(self):
         print "Creating net with name vn1"
@@ -218,7 +248,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for port in port_rsp['ports']])
     #end test_port
 
-    def test_policy(self):
+    def _test_policy(self):
         print "Creating policy pol1"
         np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
                         [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
@@ -250,7 +280,7 @@ class CRUDTestCase(unittest.TestCase):
         policy_rsp = self._quantum.update_policy(policy1_id, {'policy': policy_req})
     #end test_policy
 
-    def test_policy_link_vns(self):
+    def _test_policy_link_vns(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = self._create_two_vns()
         net1_fq_name_str = ':'.join(net1_fq_name)
         net2_fq_name_str = ':'.join(net2_fq_name)
@@ -325,19 +355,34 @@ class CRUDTestCase(unittest.TestCase):
         fip_pool_net_id = fip_pool_nets['networks'][0]['id']
 
         # allocate couple of floating ips
+        fip_dicts = []
         for i in range(2):
             fip_req = {'floatingip': {'floating_network_id': fip_pool_net_id,
                                       'tenant_id': proj_obj.uuid} }
             fip_resp = self._quantum.create_floatingip(fip_req)
-            print "Got floating-ip %s" %(fip_resp['floatingip']['floating_ip_address'])
+            fip_dicts.append(fip_resp['floatingip'])
+            print "Got floating-ip %s" %(fip_dicts[i]['floating_ip_address'])
 
         # list floating ips available for current project
-        fip_list = self._quantum.list_floatingips(tenant_id = proj_obj.uuid)
-        print "Floating IP list: " + pformat(fip_list)
+        fip_resp = self._quantum.list_floatingips(tenant_id = proj_obj.uuid)
+        print "Floating IP list: " + pformat(fip_resp)
+        fip_list = fip_resp['floatingips']
+        self.assertEqual(len(fip_list), 2)
 
+        # TODO associate floating ip
+        # TODO release the floating ips
+
+        # delete the floating ips
+        for i in range(2):
+            self._quantum.delete_floatingip(fip_dicts[i]['id'])
+
+        fip_resp = self._quantum.list_floatingips(tenant_id = proj_obj.uuid)
+        fip_list = fip_resp['floatingips']
+        self.assertEqual(len(fip_list), 0)
     #end test_floating_ip
 
-    def _create_two_vns(self, vn1_name = None, vn2_name = None):
+    def _create_two_vns(self, vn1_name = None, vn1_tenant = None,
+                              vn2_name = None, vn2_tenant = None):
         if not vn1_name:
             vn1_name = 'vn1'
         if not vn2_name:

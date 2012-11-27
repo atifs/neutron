@@ -118,14 +118,24 @@ class DBInterface(object):
     #end _network_list_project
 
     def _ipam_list_project(self, project_id):
-        resp_str = self._vnc_lib.network_ipams_list(project_id = project_id)
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" %(project_id) 
+
+        resp_str = self._vnc_lib.network_ipams_list(project_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-ipams']
     #end _ipam_list_project
 
     def _policy_list_project(self, project_id):
-        resp_str = self._vnc_lib.network_policys_list(project_id = project_id)
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" %(project_id) 
+
+        resp_str = self._vnc_lib.network_policys_list(project_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-policys']
@@ -441,7 +451,7 @@ class DBInterface(object):
     def _ipam_quantum_to_vnc(self, ipam_q, oper):
         ipam_name = ipam_q.get('name', None)
         if oper == CREATE:
-            project_id = str(uuid.UUID(network_q['tenant_id']))
+            project_id = str(uuid.UUID(ipam_q['tenant_id']))
             project_obj = self._vnc_lib.project_read(id = project_id)
             ipam_obj = NetworkIpam(ipam_name, project_obj)
         else: # READ/UPDATE/DELETE
@@ -530,6 +540,8 @@ class DBInterface(object):
         if fip_q['port_id']:
             port_obj = self._vnc_lib.virtual_machine_interface_read(id = fip_q['port_id'])
             fip_obj.set_virtual_machine_interface(port_obj)
+        else:
+            fip_obj.set_virtual_machine_interface_list(None)
 
         return fip_obj
     #end _floatingip_quantum_to_vnc
@@ -854,7 +866,11 @@ class DBInterface(object):
     #end ipam_create
 
     def ipam_read(self, ipam_id):
-        ipam_obj = self._vnc_lib.network_ipam_read(id = ipam_id)
+        try:
+            ipam_obj = self._vnc_lib.network_ipam_read(id = ipam_id)
+        except NoIdError:
+            # TODO add ipam specific exception
+            raise exceptions.NetworkNotFound(net_id = ipam_id)
 
         return self._ipam_vnc_to_quantum(ipam_obj)
     #end ipam_read
@@ -886,8 +902,8 @@ class DBInterface(object):
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                proj_name = project['fq_name'][-1]
-                project_ipams = self._ipam_list_project(proj_name)
+                proj_id = project['uuid']
+                project_ipams = self._ipam_list_project(proj_id)
                 all_ipams.append(project_ipams)
 
         # prune phase
@@ -948,8 +964,8 @@ class DBInterface(object):
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
-                proj_name = project['fq_name'][-1]
-                project_policys = self._policy_list_project(proj_name)
+                proj_id = project['uuid']
+                project_policys = self._policy_list_project(proj_id)
                 all_policys.append(project_policys)
 
         # prune phase
@@ -981,7 +997,6 @@ class DBInterface(object):
     #end floatingip_read
 
     def floatingip_update(self, fip_id, fip_q):
-        import pdb; pdb.set_trace()
         fip_q['id'] = fip_id
         fip_obj = self._floatingip_quantum_to_vnc(fip_q, UPDATE)
         self._vnc_lib.floating_ip_update(fip_obj)
