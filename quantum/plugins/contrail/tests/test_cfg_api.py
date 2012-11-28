@@ -1,3 +1,5 @@
+import logging
+
 from ginkgo import Service
 from fabric.api import env
 from fabric.api import run
@@ -47,7 +49,8 @@ IFMAP_SVR_PASSWD2 = 'test2'
 IFMAP_SVR_USER3 = 'test3'
 IFMAP_SVR_PASSWD3 = 'test3'
 
-API_SVR_IP = '127.0.0.1'
+API_SVR_IP = '0.0.0.0'
+#API_SVR_IP = '10.1.2.195'
 API_SVR_PORT = '8082'
 
 QUANTUM_SVR_IP = '127.0.0.1'
@@ -337,7 +340,7 @@ class CRUDTestCase(unittest.TestCase):
 
     def test_floating_ip(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = \
-                 self._create_two_vns('pvt-vn', 'pub-vn')
+                 self._create_two_vns(vn1_name = 'pvt-vn', vn2_name = 'pub-vn')
 
         # create floating ip pool from public network
         pub_vn_obj = self._vnc_lib.virtual_network_read(id = net2_id)
@@ -492,14 +495,15 @@ class TestBench(Service):
         # Wait for IFMAP server to be running before launching api server
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
-        args_str = '--auth keystone --reset-config'
-        args_str = args_str + ' --listen-ip-addr %s --listen-port %s' %(API_SVR_IP, API_SVR_PORT)
-        args_str = args_str + ' %s %s %s %s %s %s' %(IFMAP_SVR_IP,
-                                                     IFMAP_SVR_PORT,
-                                                     IFMAP_SVR_USER,
-                                                     IFMAP_SVR_PASSWD,
-                                                     CASS_SVR_IP,
-                                                     CASS_SVR_PORT)
+        args_str = '--auth keystone --reset_config'
+        #args_str = '--auth keystone'
+        args_str = args_str + ' --listen_ip_addr %s --listen_port %s' %(API_SVR_IP, API_SVR_PORT)
+        args_str = args_str + ' --ifmap_server_ip %s --ifmap_server_port %s' %(IFMAP_SVR_IP,
+                                                                               IFMAP_SVR_PORT)
+        args_str = args_str + ' --ifmap_username %s --ifmap_password %s' %(IFMAP_SVR_USER,
+                                                                           IFMAP_SVR_PASSWD)
+        args_str = args_str + ' --cassandra_server_ip %s --cassandra_server_port %s' %(CASS_SVR_IP,
+                                                                                       CASS_SVR_PORT)
         vnc_cfg_api_server.main(args_str)
     #end launch_api_server
 
