@@ -757,7 +757,6 @@ class DBInterface(object):
         else: # virtual-network already linked to this ipam
             vnsn_data = net_ipam_ref['attr']
             vnsn_data.ipam_subnets.append(subnet_vnc)
-            net_obj.set_network_ipam(netipam_obj, vnsn_data)
 
         self._vnc_lib.virtual_network_update(net_obj)
 
