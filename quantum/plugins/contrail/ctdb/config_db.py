@@ -740,6 +740,7 @@ class DBInterface(object):
             ipam_fq_name = netipam_obj.get_fq_name()
 
         subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
+        subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
 
         # Locate list of subnets to which this subnet has to be appended
         net_ipam_ref = None
@@ -755,6 +756,11 @@ class DBInterface(object):
             vnsn_data = VnSubnetsType([subnet_vnc])
             net_obj.add_network_ipam(netipam_obj, vnsn_data)
         else: # virtual-network already linked to this ipam
+            for subnet in net_ipam_ref['attr'].get_ipam_subnets():
+                if subnet_key == self._subnet_vnc_get_key(subnet, net_obj):
+                    # duplicate !!
+                    subnet_info = self._subnet_vnc_to_quantum(subnet, net_obj, ipam_fq_name)
+                    return subnet_info
             vnsn_data = net_ipam_ref['attr']
             vnsn_data.ipam_subnets.append(subnet_vnc)
 
@@ -763,7 +769,6 @@ class DBInterface(object):
         # allocate an id to the subnet and store mapping with
         # api-server
         subnet_id = str(uuid.uuid4())
-        subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
         self._subnet_vnc_create_mapping(subnet_id, subnet_key)
 
         # Read in subnet from server to get updated values for gw etc.
