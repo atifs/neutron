@@ -810,10 +810,10 @@ class DBInterface(object):
             for ipam_ref in ipam_refs:
                 orig_subnets = ipam_ref['attr'].get_ipam_subnets()
                 new_subnets = [subnet_vnc for subnet_vnc in orig_subnets \
-                               if self._subnet_vnc_get_key(subnet, net_obj) != subnet_key]
+                               if self._subnet_vnc_get_key(subnet_vnc, net_obj) != subnet_key]
                 if len(orig_subnets) != len(new_subnets):
                     # matched subnet to be deleted
-                    ipam_ref['attr'].set_subnet(new_subnets)
+                    ipam_ref['attr'].set_ipam_subnets(new_subnets)
                     self._vnc_lib.virtual_network_update(net_obj)
                     self._subnet_vnc_delete_mapping(subnet_id, subnet_key)
                     return
