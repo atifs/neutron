@@ -52,6 +52,7 @@ nvp_plugin_config_path = 'etc/quantum/plugins/nicira'
 ryu_plugin_config_path = 'etc/quantum/plugins/ryu'
 meta_plugin_config_path = 'etc/quantum/plugins/metaplugin'
 nec_plugin_config_path = 'etc/quantum/plugins/nec'
+contrail_plugin_config_path = 'etc/quantum/plugins/contrail'
 
 DataFiles = [
     (config_path,
@@ -87,6 +88,7 @@ DataFiles = [
     (meta_plugin_config_path,
         ['etc/quantum/plugins/metaplugin/metaplugin.ini']),
     (nec_plugin_config_path, ['etc/quantum/plugins/nec/nec.ini']),
+    (contrail_plugin_config_path, ['etc/quantum/plugins/contrail/contrail_plugin.ini'])
 ]
 
 setuptools.setup(
