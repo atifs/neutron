@@ -18,6 +18,7 @@ import errno
 import socket
 import subprocess
 import vnc_cfg_api_server
+from vnc_api_common import exceptions as vnc_exceptions
 
 import unittest
 from vnc_api import *
@@ -27,7 +28,7 @@ sys.path.insert(2, '/opt/stack/python-quantumclient')
 from pprint import pformat
 from quantumclient.quantum import client
 from quantumclient.client import HTTPClient
-from quantumclient.common import exceptions
+from quantumclient.common import exceptions as q_exceptions
 
 CASS_SVR_IP = '127.0.0.1'
 CASS_SVR_PORT = '9160'
@@ -49,26 +50,32 @@ IFMAP_SVR_PASSWD2 = 'test2'
 IFMAP_SVR_USER3 = 'test3'
 IFMAP_SVR_PASSWD3 = 'test3'
 
-API_SVR_IP = '0.0.0.0'
-#API_SVR_IP = '10.1.2.195'
+#API_SVR_IP = '0.0.0.0'
+API_SVR_IP = '10.1.2.195'
 API_SVR_PORT = '8082'
 
 QUANTUM_SVR_IP = '127.0.0.1'
 QUANTUM_SVR_PORT = '9696'
 
 BGP_SVR_IP = '127.0.0.1'
-BGP_SVR_PORT = '9023'
-BGP_SANDESH_PORT = '9024'
+BGP_SVR_PORT = '8179'
+BGP_SANDESH_PORT = '8083'
+
+COLL_SVR_IP = '127.0.0.1'
+COLL_SVR_PORT = '8090'
+
+HTTP_SVR_PORT = '8091'
 
 ZK_LOC='/home/contrail/source/zookeeper-3.4.4/'
 KEYSTONE_LOC='/opt/stack/keystone/'
 IFMAP_SVR_LOC='/home/contrail/source/ifmap-server/'
+API_SVR_LOC='/usr/local/lib/python2.7/dist-packages/vnc_cfg_api_server-0.1dev-py2.7.egg/'
 QUANTUM_SVR_LOC='/opt/stack/quantum/'
 SCHEMA_TRANSFORMER_LOC='/usr/local/lib/python2.7/dist-packages/schema_transformer-0.1dev-py2.7.egg/schema_transformer/'
-CTRLPLANE_ROOT='/home/contrail/source/ctrlplane'
-BGP_SVR_ROOT=CTRLPLANE_ROOT
-KLM_LOC=CTRLPLANE_ROOT + '/src/vnsw/dp/'
-AGENT_LOC=CTRLPLANE_ROOT + '/build/debug/vnsw/agent/'
+CTRLPLANE_BIN='/home/contrail/build/bin/'
+CTRLPLANE_LIB='/home/contrail/build/lib/'
+#KLM_LOC=CTRLPLANE_ROOT + '/src/vnsw/dp/'
+#AGENT_LOC=CTRLPLANE_ROOT + '/build/debug/vnsw/agent/'
 
 class CRUDTestCase(unittest.TestCase):
     def setUp(self):
@@ -114,7 +121,7 @@ class CRUDTestCase(unittest.TestCase):
         # Delete; Verify with show + list
         self._quantum.delete_network(net_id)
 
-        with self.assertRaisesRegexp(exceptions.QuantumClientException,
+        with self.assertRaisesRegexp(q_exceptions.QuantumClientException,
                                      'could not be found') as e:
             self._quantum.show_network(net_id)
 
@@ -146,7 +153,7 @@ class CRUDTestCase(unittest.TestCase):
 
     #end test_subnet
 
-    def test_ipam(self):
+    def _test_ipam(self):
         print "Creating ipam with ipam1"
         ipam_name = 'ipam1'
         ipam_req = {'name': ipam_name}
@@ -171,7 +178,7 @@ class CRUDTestCase(unittest.TestCase):
         # Delete; Verify with show + list
         self._quantum.delete_ipam(ipam_id)
 
-        with self.assertRaisesRegexp(exceptions.QuantumClientException,
+        with self.assertRaisesRegexp(q_exceptions.QuantumClientException,
                                      'could not be found') as e:
             self._quantum.show_ipam(ipam_id)
 
@@ -243,7 +250,7 @@ class CRUDTestCase(unittest.TestCase):
         print "Deleting port"
         self._quantum.delete_port(port_id)
 
-        with self.assertRaises(exceptions.QuantumClientException) as e:
+        with self.assertRaises(q_exceptions.QuantumClientException) as e:
             self._quantum.show_port(port_id)
 
         port_rsp = self._quantum.list_ports(device_id = [instance_id])
@@ -338,7 +345,7 @@ class CRUDTestCase(unittest.TestCase):
 
     #end test_policy_link_vns
 
-    def test_floating_ip(self):
+    def _test_floating_ip(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = \
                  self._create_two_vns(vn1_name = 'pvt-vn', vn2_name = 'pub-vn')
 
@@ -383,6 +390,34 @@ class CRUDTestCase(unittest.TestCase):
         fip_list = fip_resp['floatingips']
         self.assertEqual(len(fip_list), 0)
     #end test_floating_ip
+
+    def test_bgp_router(self):
+        fq_name = ['default-domain', 'default-project', 'ip-fabric', '__default__']
+        ri_obj = self._vnc_lib.routing_instance_read(fq_name = fq_name)
+
+        bgp_addr_fams = AddressFamilies(['inet-vpn'])
+        bgp_sess_attrs = [BgpSessionAttributes(address_families = bgp_addr_fams)]
+        bgp_sessions = [BgpSession(attributes = bgp_sess_attrs)]
+        bgp_peering_attrs = BgpPeeringAttributes(session = bgp_sessions)
+
+        bgp_router1 = BgpRouter('bgp-router1', ri_obj)
+        bgp_router2 = BgpRouter('bgp-router2', ri_obj)
+        bgp_router1.add_bgp_router(bgp_router2, bgp_peering_attrs)
+        bgp_router2.add_bgp_router(bgp_router1, bgp_peering_attrs)
+
+        self._vnc_lib.bgp_router_create(bgp_router1)
+        self._vnc_lib.bgp_router_create(bgp_router2)
+        with self.assertRaises(vnc_exceptions.RefsExistError) as e:
+            self._vnc_lib.bgp_router_delete(id = bgp_router1.uuid)
+
+        bgp_router1.set_bgp_router_list([], [])
+        bgp_router2.set_bgp_router_list([], [])
+
+        self._vnc_lib.bgp_router_update(bgp_router1)
+        self._vnc_lib.bgp_router_update(bgp_router2)
+        self._vnc_lib.bgp_router_delete(id = bgp_router1.uuid)
+        self._vnc_lib.bgp_router_delete(id = bgp_router2.uuid)
+    #end test_bgp_router
 
     def _create_two_vns(self, vn1_name = None, vn1_tenant = None,
                               vn2_name = None, vn2_tenant = None):
@@ -430,6 +465,7 @@ class TestBench(Service):
     def __init__(self):
         self._keystone_server = None
         self._ifmap_server = None
+        self._api_server = None
         self._quantum_server = None
         self._klm_loaded = False
 
@@ -441,14 +477,14 @@ class TestBench(Service):
 
     def do_start(self):
         self.spawn(self.launch_zookeeper)
-        #self.spawn(self.launch_keystone)
+        self.spawn(self.launch_keystone)
         self.spawn(self.launch_ifmap_server)
         self.spawn(self.launch_api_server)
         self.spawn(self.launch_quantum_plugin)
         self.spawn(self.launch_schema_transformer)
         self.spawn(self.launch_bgp_server)
-        self.spawn(self.launch_klms)
-        self.spawn(self.launch_agents)
+        #self.spawn(self.launch_klms)
+        #self.spawn(self.launch_agents)
         self.spawn(self.launch_tests)
     #end do_start
 
@@ -461,6 +497,8 @@ class TestBench(Service):
             self._keystone_server.kill()
         if self._ifmap_server:
             self._ifmap_server.kill()
+        if self._api_server:
+            self._api_server.kill()
         if self._quantum_server:
             self._quantum_server.kill()
         if self._bgp_server:
@@ -495,16 +533,27 @@ class TestBench(Service):
         # Wait for IFMAP server to be running before launching api server
         self._block_till_port_listened('ifmap-server', IFMAP_SVR_IP, IFMAP_SVR_PORT)
 
-        args_str = '--auth keystone --reset_config'
+        args = ['--auth', 'keystone',
+                '--reset_config',
+                '--listen_ip_addr', API_SVR_IP, '--listen_port', API_SVR_PORT,
+                '--ifmap_server_ip', IFMAP_SVR_IP, '--ifmap_server_port', IFMAP_SVR_PORT,
+                '--ifmap_username', IFMAP_SVR_USER, '--ifmap_password', IFMAP_SVR_PASSWD,
+                '--cassandra_server_ip', CASS_SVR_IP, '--cassandra_server_port', CASS_SVR_PORT,]
+
+        #args_str = '--auth keystone --reset_config'
         #args_str = '--auth keystone'
-        args_str = args_str + ' --listen_ip_addr %s --listen_port %s' %(API_SVR_IP, API_SVR_PORT)
-        args_str = args_str + ' --ifmap_server_ip %s --ifmap_server_port %s' %(IFMAP_SVR_IP,
-                                                                               IFMAP_SVR_PORT)
-        args_str = args_str + ' --ifmap_username %s --ifmap_password %s' %(IFMAP_SVR_USER,
-                                                                           IFMAP_SVR_PASSWD)
-        args_str = args_str + ' --cassandra_server_ip %s --cassandra_server_port %s' %(CASS_SVR_IP,
-                                                                                       CASS_SVR_PORT)
-        vnc_cfg_api_server.main(args_str)
+        #args_str = args_str + ' --listen_ip_addr %s --listen_port %s' %(API_SVR_IP, API_SVR_PORT)
+        #args_str = args_str + ' --ifmap_server_ip %s --ifmap_server_port %s' %(IFMAP_SVR_IP,
+        #                                                                       IFMAP_SVR_PORT)
+        #args_str = args_str + ' --ifmap_username %s --ifmap_password %s' %(IFMAP_SVR_USER,
+        #                                                                   IFMAP_SVR_PASSWD)
+        #args_str = args_str + ' --cassandra_server_ip %s --cassandra_server_port %s' %(CASS_SVR_IP,
+        #                                                                               CASS_SVR_PORT)
+        args_str = ' '.join(args)
+        #vnc_cfg_api_server.main(args_str)
+        api_server = subprocess.Popen(['python', 'vnc_cfg_api_server.py'] + args,
+                                      cwd = API_SVR_LOC)
+        self._api_server = api_server
     #end launch_api_server
 
     def launch_quantum_plugin(self):
@@ -523,11 +572,13 @@ class TestBench(Service):
         self._block_till_port_listened('api-server', API_SVR_IP, API_SVR_PORT)
 
         schema_transformer = subprocess.Popen(['python', 'to_bgp.py',
-                                               IFMAP_SVR_IP, IFMAP_SVR_PORT,
-                                               IFMAP_SVR_USER2, IFMAP_SVR_PASSWD2,
-                                               API_SVR_IP, API_SVR_PORT,
-                                               ZK_SVR_IP, ZK_SVR_PORT],
-                                              cwd = SCHEMA_TRANSFORMER_LOC)
+               '--ifmap_server_ip', IFMAP_SVR_IP, '--ifmap_server_port', IFMAP_SVR_PORT,
+               '--ifmap_username', IFMAP_SVR_USER2, '--ifmap_password', IFMAP_SVR_PASSWD2,
+               '--api_server_ip', API_SVR_IP, '--api_server_port', API_SVR_PORT,
+               '--zookeeper_server_ip', ZK_SVR_IP, '--zookeeper_server_port', ZK_SVR_PORT,
+               '--collector', COLL_SVR_IP, '--collector_port', COLL_SVR_PORT,
+               '--http_server_port', HTTP_SVR_PORT],
+               cwd = SCHEMA_TRANSFORMER_LOC)
         self._schema_transformer = schema_transformer
     #end launch_schema_transformer
 
@@ -537,11 +588,11 @@ class TestBench(Service):
 
         logf_out = open('bgp-server.out', 'w')
         logf_err = open('bgp-server.err', 'w')
-        bgp_server = subprocess.Popen(['./build/debug/control-node/control-node',
+        bgp_server = subprocess.Popen(['%s/control-node' %(CTRLPLANE_BIN),
             '--map-server-url', 'https://%s:%s' %(IFMAP_SVR_IP, IFMAP_SVR_PORT),
             '--map-user', IFMAP_SVR_USER3, '--map-password', IFMAP_SVR_PASSWD3,
-            '--bgp-port', BGP_SVR_PORT, '--sandesh-port', BGP_SANDESH_PORT],
-            cwd = BGP_SVR_ROOT, env = {'LD_LIBRARY_PATH': '%s/build/lib' %(BGP_SVR_ROOT)},
+            '--bgp-port', BGP_SVR_PORT, '--http-server-port', BGP_SANDESH_PORT],
+            env = {'LD_LIBRARY_PATH': CTRLPLANE_LIB},
             stdout = logf_out, stderr = logf_err)
 
         self._bgp_server = bgp_server

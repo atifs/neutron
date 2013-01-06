@@ -1087,6 +1087,7 @@ class DBInterface(object):
  
     def port_delete(self, port_id):
         port_obj = self._port_quantum_to_vnc({'id': port_id}, None, READ)
+        inst_fq_name = port_obj.get_parent_fq_name()
 
         # release instance IP address
         iip_back_refs = port_obj.get_instance_ip_back_refs()
@@ -1101,6 +1102,12 @@ class DBInterface(object):
             self.floatingip_update(fip_obj.uuid, {'port_id': None})
 
         self._vnc_lib.virtual_machine_interface_delete(id = port_id)
+
+        # delete instance if this was the last port
+        inst_obj = self._vnc_lib.virtual_machine_read(fq_name = inst_fq_name)
+        if len(inst_obj.get_virtual_machine_interfaces()) == 0:
+            self._vnc_lib.virtual_machine_delete(id = inst_obj.uuid)
+
     #end port_delete
 
     def port_list(self, filters = None):
