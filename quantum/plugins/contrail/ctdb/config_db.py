@@ -10,6 +10,7 @@ import requests
 import re
 import uuid
 import json
+import time
 from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
@@ -36,9 +37,18 @@ class DBInterface(object):
         self._api_srvr_ip = api_srvr_ip
 	self._api_srvr_port = api_srvr_port
 
-        # TODO remove hardcode
-        self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
-                               api_srvr_ip, api_srvr_port, '/')
+        # Retry till a api-server is up
+        connected = False
+        while not connected:
+            try:
+                # TODO remove hardcode
+                self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
+                                       api_srvr_ip, api_srvr_port, '/')
+                connected = True
+            except requests.exceptions.ConnectionError as e:
+                if e.args[0].strerror != 'ECONNREFUSED':
+                    raise e
+                time.sleep(3)
 
         self._subnet_map = {}
     #end __init__
