@@ -130,7 +130,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for network in net_rsp['networks']])
     #end test_network
 
-    def _test_subnet(self):
+    def test_subnet(self):
         # Create; Verify with show + list 
         param = {'contrail:fq_name': [VirtualNetwork().get_fq_name()]}
         nets = self._quantum.list_networks(**param)['networks']
@@ -153,7 +153,7 @@ class CRUDTestCase(unittest.TestCase):
 
     #end test_subnet
 
-    def _test_ipam(self):
+    def test_ipam(self):
         print "Creating ipam with ipam1"
         ipam_name = 'ipam1'
         ipam_req = {'name': ipam_name}
@@ -208,9 +208,9 @@ class CRUDTestCase(unittest.TestCase):
         self.assertEqual(len(ipam_name_list), len(ipam_name_set))
     #end test_same_name
 
-    def _test_port(self):
+    def test_port(self):
         print "Creating network VN1, subnet 10.1.1.0/24"
-        net_req = {'name': 'vn1', 'tenant_id': 'test-tenant'}
+        net_req = {'name': 'vn1'}
         net_rsp = self._quantum.create_network({'network': net_req})
         net1_id = net_rsp['network']['id']
         net1_fq_name = net_rsp['network']['contrail:fq_name']
@@ -219,7 +219,7 @@ class CRUDTestCase(unittest.TestCase):
 
         print "Creating port"
         instance_id = str(uuid.uuid4())
-        port_req = {'network_id': net1_id, 'tenant_id': 'test-tenant',
+        port_req = {'network_id': net1_id,
                     'device_id': instance_id,
                     'compute_node_id': 'test-server'}
         port_rsp = self._quantum.create_port({'port': port_req})
@@ -243,7 +243,7 @@ class CRUDTestCase(unittest.TestCase):
         print "Listing port"
         port_rsp = self._quantum.list_ports(device_id = [instance_id])
         self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
-        port_rsp = self._quantum.list_ports(tenant_id = ['test-tenant'])
+        port_rsp = self._quantum.list_ports(network_id = [net1_id])
         self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
 
         # Delete; Verify with show + list
@@ -258,7 +258,7 @@ class CRUDTestCase(unittest.TestCase):
                                      for port in port_rsp['ports']])
     #end test_port
 
-    def _test_policy(self):
+    def test_policy(self):
         print "Creating policy pol1"
         np_rules = [PolicyRuleType(None, '<>', 'pass', 'any',
                         [AddressType(virtual_network = 'local')], [PortType(-1, -1)], None,
@@ -290,7 +290,7 @@ class CRUDTestCase(unittest.TestCase):
         policy_rsp = self._quantum.update_policy(policy1_id, {'policy': policy_req})
     #end test_policy
 
-    def _test_policy_link_vns(self):
+    def test_policy_link_vns(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = self._create_two_vns()
         net1_fq_name_str = ':'.join(net1_fq_name)
         net2_fq_name_str = ':'.join(net2_fq_name)
@@ -307,6 +307,7 @@ class CRUDTestCase(unittest.TestCase):
                       'entries': pol_entries_dict}
         
         policy_rsp = self._quantum.create_policy({'policy': policy_req})
+        policy1_id = policy_rsp['policy']['id']
         policy1_fq_name = policy_rsp['policy']['fq_name']
         
         print "Creating policy pol2"
@@ -321,6 +322,7 @@ class CRUDTestCase(unittest.TestCase):
                       'entries': pol_entries_dict}
         
         policy_rsp = self._quantum.create_policy({'policy': policy_req})
+        policy2_id = policy_rsp['policy']['id']
         policy2_fq_name = policy_rsp['policy']['fq_name']
         
         print "Setting VN1 policy to [pol1]"
@@ -331,21 +333,24 @@ class CRUDTestCase(unittest.TestCase):
         net_req = {'contrail:policys': [policy2_fq_name]}
         net_rsp = self._quantum.update_network(net2_id, {'network': net_req})
         
-        # Operational (interface directly with vnc-lib)
-        # TODO go thru quantum in future
-        #instance_id = str(uuid.uuid4())
-        #port_req = {'network_id': net1_id, 'tenant_id': 'test-tenant',
-        #            'device_id': instance_id,
-        #            'compute_node_id': 'test-server'}
-        #port_rsp = self._quantum.create_port({'port': port_req})
-        #port_id = port_rsp['port']['id']
+        instance_id = str(uuid.uuid4())
+        port_req = {'network_id': net1_id,
+                    'device_id': instance_id,
+                    'compute_node_id': 'test-server'}
+        port_rsp = self._quantum.create_port({'port': port_req})
+        port_id = port_rsp['port']['id']
 
-        #port_rsp = self._quantum.list_ports(device_id = [instance_id])
-        #self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
+        port_rsp = self._quantum.list_ports(device_id = [instance_id])
+        self.assertIn(port_id, [port['id'] for port in port_rsp['ports']])
 
+        self._quantum.delete_port(port_id)
+        self._delete_two_vns(net1_id, net2_id)
+
+        self._quantum.delete_policy(policy1_id)
+        self._quantum.delete_policy(policy2_id)
     #end test_policy_link_vns
 
-    def _test_floating_ip(self):
+    def test_floating_ip(self):
         net1_id, net2_id, net1_fq_name, net2_fq_name = \
                  self._create_two_vns(vn1_name = 'pvt-vn', vn2_name = 'pub-vn')
 
@@ -379,8 +384,20 @@ class CRUDTestCase(unittest.TestCase):
         fip_list = fip_resp['floatingips']
         self.assertEqual(len(fip_list), 2)
 
-        # TODO associate floating ip
-        # TODO release the floating ips
+        # create instance
+        instance_id, port_id, net_id = self._create_instance()
+
+        # associate floating ip
+        fip_id = fip_dicts[0]['id']
+        fip_req = {'floatingip': {'port_id': port_id} }
+        fip_resp = self._quantum.update_floatingip(fip_id, fip_req)
+
+        # release the floating ips
+        fip_req = {'floatingip': {'port_id': None} }
+        fip_resp = self._quantum.update_floatingip(fip_id, fip_req)
+
+        # delete instance
+        self._delete_instance(instance_id, port_id, net_id)
 
         # delete the floating ips
         for i in range(2):
@@ -419,31 +436,30 @@ class CRUDTestCase(unittest.TestCase):
         self._vnc_lib.bgp_router_delete(id = bgp_router2.uuid)
     #end test_bgp_router
 
-    def _create_two_vns(self, vn1_name = None, vn1_tenant = None,
-                              vn2_name = None, vn2_tenant = None):
-        if not vn1_name:
-            vn1_name = 'vn1'
-        if not vn2_name:
-            vn2_name = 'vn2'
+    def test_instance(self):
+        instance_id, port_id, net_id = self._create_instance()
+        port_id = self._delete_instance(instance_id, port_id, net_id)
+    #end test_instance
 
-        print "Creating network %s, subnet 10.1.1.0/24" %(vn1_name)
-        net_req = {'name': vn1_name}
-        net_rsp = self._quantum.create_network({'network': net_req})
-        net1_id = net_rsp['network']['id']
-        net1_fq_name = net_rsp['network']['contrail:fq_name']
-        net1_fq_name_str = ':'.join(net1_fq_name)
-        self._create_subnet(u'10.1.1.0/24', net1_id)
+    def _create_instance(self, net_id = None, vrouter_name = 'test-vrouter'):
+        if not net_id:
+            net_id, net_fq_name = self._create_vn_subnet('vn1', '10.1.1.0/24')
 
-        print "Creating network %s, subnet 20.1.1.0/24" %(vn2_name)
-        net_req = {'name': vn2_name}
-        net_rsp = self._quantum.create_network({'network': net_req})
-        net2_id = net_rsp['network']['id']
-        net2_fq_name = net_rsp['network']['contrail:fq_name']
-        net2_fq_name_str = ':'.join(net2_fq_name)
-        self._create_subnet(u'20.1.1.0/24', net2_id)
+        print "Creating instance/port"
+        instance_id = str(uuid.uuid4())
+        port_req = {'network_id': net_id,
+                    'device_id': instance_id,
+                    'compute_node_id': vrouter_name}
+        port_rsp = self._quantum.create_port({'port': port_req})
+        port_id = port_rsp['port']['id']
 
-        return net1_id, net2_id, net1_fq_name, net2_fq_name
-    #end _create_two_vns
+        return instance_id, port_id, net_id
+    #end _create_instance
+
+    def _delete_instance(self, instance_id, port_id, net_id = None):
+        self._quantum.delete_port(port_id)
+        self._delete_vn_subnet(net_id)
+    #end _delete_instance
 
     def _create_subnet(self, cidr, net_id, ipam_fq_name = None):
         if not ipam_fq_name:
@@ -458,6 +474,46 @@ class CRUDTestCase(unittest.TestCase):
         self.assertEqual(subnet_cidr, cidr)
         return subnet_rsp['subnet']['id']
     #end _create_subnet
+
+    def _create_vn_subnet(self, vn_name, subnet):
+        print "Creating network %s, subnet %s" %(vn_name, subnet)
+        net_req = {'name': vn_name}
+        net_rsp = self._quantum.create_network({'network': net_req})
+        net_id = net_rsp['network']['id']
+        net_fq_name = net_rsp['network']['contrail:fq_name']
+        self._create_subnet(subnet, net_id)
+
+        return net_id, net_fq_name
+    #end _create_vn_subnet
+
+    def _delete_vn_subnet(self, vn_id):
+        subnets_rsp = self._quantum.list_subnets(network_id = vn_id)
+        for subnet in subnets_rsp['subnets']:
+            self._quantum.delete_subnet(subnet['id'])
+
+        self._quantum.delete_network(vn_id)
+    #end _delete_vn_subnet
+
+    def _create_two_vns(self, vn1_name = None, vn1_tenant = None,
+                              vn2_name = None, vn2_tenant = None):
+        if not vn1_name:
+            vn1_name = 'vn1'
+        if not vn2_name:
+            vn2_name = 'vn2'
+
+        net1_id, net1_fq_name = self._create_vn_subnet(vn1_name, '10.1.1.0/24')
+        net1_fq_name_str = ':'.join(net1_fq_name)
+
+        net2_id, net2_fq_name = self._create_vn_subnet(vn2_name, '10.1.1.0/24')
+        net2_fq_name_str = ':'.join(net2_fq_name)
+
+        return net1_id, net2_id, net1_fq_name, net2_fq_name
+    #end _create_two_vns
+
+    def _delete_two_vns(self, vn1_id, vn2_id):
+        self._delete_vn_subnet(vn1_id)
+        self._delete_vn_subnet(vn2_id)
+    #end _delete_two_vns
 
 #end class CRUDTestCase
 

@@ -1117,7 +1117,15 @@ class DBInterface(object):
 
         # delete instance if this was the last port
         inst_obj = self._vnc_lib.virtual_machine_read(fq_name = inst_fq_name)
-        if len(inst_obj.get_virtual_machine_interfaces()) == 0:
+        inst_intfs = inst_obj.get_virtual_machine_interfaces()
+        if not inst_intfs:
+            # remove ref from vrouter
+            vrouter_back_refs = inst_obj.get_virtual_router_back_refs()
+            fq_name = vrouter_back_refs[0]['to']
+            vrouter_obj = self._vnc_lib.virtual_router_read(fq_name = fq_name)
+            vrouter_obj.del_virtual_machine(inst_obj)
+            self._vnc_lib.virtual_router_update(vrouter_obj)
+
             self._vnc_lib.virtual_machine_delete(id = inst_obj.uuid)
 
     #end port_delete
