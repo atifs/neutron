@@ -16,7 +16,7 @@ from netaddr import IPNetwork, IPSet, IPAddress
 from quantum.common import constants
 from quantum.common import exceptions
 from quantum.api.v2 import attributes as attr
-from vnc_api import *
+from vnc_api.vnc_api import *
 
 _DEFAULT_HEADERS = {
                     'Content-type': 'application/json; charset="UTF-8"',
