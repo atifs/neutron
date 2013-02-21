@@ -229,7 +229,8 @@ class DBInterface(object):
                 try:
                     idx = filters[key_name].index(match_value)
                     if (filters.has_key('shared') and
-                        filters['shared'][idx] == True):
+                        filters['shared'][0] == True):
+                        # yuck, q-api has shared as list always of 1 elem
                         return False # no shared-resource support
                 except ValueError: # not in requested list
                     return False
