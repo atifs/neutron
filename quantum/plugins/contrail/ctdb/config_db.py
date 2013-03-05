@@ -45,9 +45,7 @@ class DBInterface(object):
                 self._vnc_lib = VncApi('user1', 'password1', 'default-domain',
                                        api_srvr_ip, api_srvr_port, '/')
                 connected = True
-            except requests.exceptions.ConnectionError as e:
-                if e.args[0].strerror != 'ECONNREFUSED':
-                    raise e
+            except requests.exceptions.RequestException as e:
                 time.sleep(3)
 
         self._subnet_map = {}
