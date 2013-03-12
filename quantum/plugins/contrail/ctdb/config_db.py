@@ -187,14 +187,22 @@ class DBInterface(object):
     def _port_list_network(self, network_id):
         ret_list = []
 
-        net_obj = self._vnc_lib.virtual_network_read(id = network_id)
+        try:
+            net_obj = self._vnc_lib.virtual_network_read(id = network_id)
+        except NoIdError:
+            return ret_list
+
         port_back_refs = net_obj.get_virtual_machine_interface_back_refs()
         if port_back_refs:
             for port_back_ref in port_back_refs:
                 port_fq_name = port_back_ref['to']
                 port_id = self._vnc_lib.fq_name_to_id('virtual-machine-interface',
                                                       port_fq_name)
-                port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
+                try:
+                    port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
+                except NoIdError:
+                    continue
+
                 ret_info = {}
                 ret_info['id'] = port_obj.uuid
                 ret_list.append(ret_info)
@@ -271,7 +279,11 @@ class DBInterface(object):
     #end _subnet_vnc_get_key
 
     def _subnet_read(self, net_uuid, subnet_key):
-        net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
+        try:
+            net_obj = self._vnc_lib.virtual_network_read(id = net_uuid)
+        except NoIdError:
+            return None
+
         ipam_refs = net_obj.get_network_ipam_refs()
         if not ipam_refs:
             return None
@@ -358,7 +370,10 @@ class DBInterface(object):
             net_q_dict['ports'] = []
             for port_back_ref in port_back_refs:
                 fq_name = port_back_ref['to']
-                port_obj = self._vnc_lib.virtual_machine_interface_read(id = fq_name[-1])
+                try:
+                    port_obj = self._vnc_lib.virtual_machine_interface_read(id = fq_name[-1])
+                except NoIdError:
+                    continue
 
                 port_info = self._port_vnc_to_quantum(port_obj)
                 port_dict = port_info['q_api_data']
