@@ -347,7 +347,7 @@ class DBInterface(object):
                 project_obj = Project(project_name, domain_obj)
                 policy_obj = NetworkPolicy(policy_name, project_obj)
 
-                net_obj.add_network_policy(policy_obj, SequenceType(seq, 0))
+                net_obj.add_network_policy(policy_obj, VirtualNetworkPolicyType(sequence = SequenceType(seq, 0)))
                 seq = seq + 1
 
         return net_obj
