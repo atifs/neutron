@@ -651,7 +651,11 @@ class DBInterface(object):
         ip_back_refs = port_obj.get_instance_ip_back_refs()
         if ip_back_refs:
             for ip_back_ref in ip_back_refs:
-                ip_obj = self._vnc_lib.instance_ip_read(fq_name = ip_back_ref['to'])
+                try:
+                    ip_obj = self._vnc_lib.instance_ip_read(fq_name = ip_back_ref['to'])
+                except NoIdError:
+                    continue
+
                 ip_addr = ip_obj.get_instance_ip_address()
 
                 ip_q_dict = {}
