@@ -1128,7 +1128,7 @@ class DBInterface(object):
         fip_back_refs = port_obj.get_floating_ip_back_refs()
         if fip_back_refs:
             for fip_back_ref in fip_back_refs:
-                fip_obj = self._vnc_lib.instance_ip_read(fq_name = fip_back_ref['to'])
+                fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
                 self.floatingip_update(fip_obj.uuid, {'port_id': None})
 
         self._vnc_lib.virtual_machine_interface_delete(id = port_id)
