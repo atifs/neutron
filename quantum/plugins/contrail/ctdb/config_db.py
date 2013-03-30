@@ -715,14 +715,24 @@ class DBInterface(object):
         # collect phase
         all_nets = [] # all n/ws in all projects
         if filters and 'tenant_id' in filters:
-            project_ids = filters['tenant_id']
-            for p_id in project_ids:
-                if 'external' in filters:
-                    all_nets.append(self._fip_pool_ref_networks(p_id))
-                else:
-                    project_nets = self._network_list_project(p_id)
-                    all_nets.append(project_nets)
+            # project-id is present
+            if 'id' in filters:
+                # required networks are also specified, just read and populate ret_list
+                # prune is skipped because all_nets is empty
+                for net_id in filters['id']:
+                    net_info = self.network_read(net_id)
+                    ret_list.append(net_info)
+            else:
+                # read all networks in project, and prune below
+                project_ids = filters['tenant_id']
+                for p_id in project_ids:
+                    if 'external' in filters:
+                        all_nets.append(self._fip_pool_ref_networks(p_id))
+                    else:
+                        project_nets = self._network_list_project(p_id)
+                        all_nets.append(project_nets)
         else:
+            # read all networks in all projects and prune below
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
                 proj_id = project['uuid']
