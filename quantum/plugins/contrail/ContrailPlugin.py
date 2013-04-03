@@ -60,6 +60,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         cfg_parser.read("/etc/quantum/plugins/contrail/contrail_plugin.ini")
         cls._admin_token   = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_token', '')
         cls._auth_url      = _read_cfg(cfg_parser, 'KEYSTONE', 'auth_url', '')
+        cls._admin_user    = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_user', 'user1')
+        cls._admin_password = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_password', 'password1')
+        cls._admin_tenant_name = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_tenant_name', 'default-domain')
         cls._tenants_api   = '%s/tenants' % (cls._auth_url)
         pass
     #end _parse_class_args
@@ -72,7 +75,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 	"""
 	if cls._cfgdb is None:
             # Initialize connection to DB and add default entries
-            cls._cfgdb = ctdb.config_db.DBInterface(cfg.CONF.APISERVER.api_server_ip,
+            cls._cfgdb = ctdb.config_db.DBInterface(cls._admin_user, cls._admin_password, cls._admin_tenant_name,
+                                                    cfg.CONF.APISERVER.api_server_ip,
                                                     cfg.CONF.APISERVER.api_server_port)
             # TODO Treat the 2 DBs as logically separate? (same backend for now)
             cls._operdb = cls._cfgdb
