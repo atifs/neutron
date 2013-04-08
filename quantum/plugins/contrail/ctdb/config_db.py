@@ -330,13 +330,8 @@ class DBInterface(object):
             id_perms.enable = network_q['admin_state_up']
             net_obj.set_id_perms(id_perms)
 
-        if (network_q.has_key('contrail:policys') and
-            network_q['contrail:policys'] != ''):
+        if network_q.has_key('contrail:policys'):
             policy_fq_names = network_q['contrail:policys']
-        else:
-            policy_fq_names = None
-
-        if policy_fq_names: 
             # reset and add with newly specified list
             net_obj.set_network_policy_list([], [])
             seq = 0
@@ -565,7 +560,7 @@ class DBInterface(object):
             port_obj = self._vnc_lib.virtual_machine_interface_read(id = fip_q['port_id'])
             fip_obj.set_virtual_machine_interface(port_obj)
         else:
-            fip_obj.set_virtual_machine_interface_list(None)
+            fip_obj.set_virtual_machine_interface_list([])
 
         return fip_obj
     #end _floatingip_quantum_to_vnc
