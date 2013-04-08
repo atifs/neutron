@@ -393,8 +393,10 @@ class DBInterface(object):
                     sn_ipam['ipam_fq_name'] = ipam_ref['to']
                     extra_dict['contrail:subnet_ipam'].append(sn_ipam)
 
-        # TODO determine right values
         extra_dict['contrail:instance_count'] = 0
+        if port_back_refs:
+            extra_dict['contrail:instance_count'] = len(port_back_refs)
+
         net_policy_refs = net_obj.get_network_policy_refs()
         if net_policy_refs:
             extra_dict['contrail:policys'] = \
