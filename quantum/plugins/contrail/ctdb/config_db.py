@@ -500,6 +500,12 @@ class DBInterface(object):
         ipam_q_dict['tenant_id'] = self.manager.tenant_name_to_id(ipam_q_dict.pop('parent_name'))
         ipam_q_dict['fq_name'] = ipam_q_dict.pop('_fq_name')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('_network_ipam_mgmt')
+        net_back_refs = ipam_q_dict.pop('_virtual_network_back_refs')
+        if net_back_refs:
+            ipam_q_dict['nets_using'] = []
+            for net_back_ref in net_back_refs:
+                net_fq_name = net_back_ref['to']
+                ipam_q_dict['nets_using'].append(net_fq_name)
 
         return {'q_api_data': ipam_q_dict,
                 'q_extra_data': {}}
