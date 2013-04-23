@@ -265,6 +265,20 @@ class DBInterface(object):
             return self._vnc_lib.kv_retrieve(key)
     #end _subnet_vnc_read_mapping
 
+    def _subnet_vnc_read_or_create_mapping(self, id = None, key = None):
+        if id:
+            return self._vnc_lib.kv_retrieve(id)
+
+        # if subnet was created outside of quantum handle it and create
+        # quantum representation now (lazily)
+        try:
+            return self._subnet_vnc_read_mapping(key = key)
+        except NoIdError:
+            subnet_id = str(uuid.uuid4())
+            self._subnet_vnc_create_mapping(subnet_id, key)
+            return self._subnet_vnc_read_mapping(key = key)
+    #end _subnet_vnc_read_or_create_mapping
+
     def _subnet_vnc_delete_mapping(self, subnet_id, subnet_key):
         self._vnc_lib.kv_delete(subnet_id)
         self._vnc_lib.kv_delete(subnet_key)
@@ -433,7 +447,8 @@ class DBInterface(object):
         sn_q_dict['cidr'] = cidr
 
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj)
-        sn_id = self._subnet_vnc_read_mapping(key = subnet_key)
+        sn_id = self._subnet_vnc_read_or_create_mapping(key = subnet_key)
+
         sn_q_dict['id'] = sn_id
 
         sn_q_dict['gateway_ip'] = subnet_vnc.default_gateway
@@ -498,7 +513,7 @@ class DBInterface(object):
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
         ipam_q_dict['tenant_id'] = self.manager.tenant_name_to_id(ipam_q_dict.pop('parent_name'))
-        ipam_q_dict['fq_name'] = ipam_q_dict.pop('_fq_name')
+        ipam_q_dict['fq_name'] = ipam_q_dict.pop('fq_name')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('_network_ipam_mgmt', None)
         net_back_refs = ipam_q_dict.pop('_virtual_network_back_refs', None)
         if net_back_refs:
@@ -533,7 +548,7 @@ class DBInterface(object):
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
-        policy_q_dict['fq_name'] = policy_q_dict.pop('_fq_name')
+        policy_q_dict['fq_name'] = policy_q_dict.pop('fq_name')
         policy_q_dict['tenant_id'] = self.manager.tenant_name_to_id(policy_q_dict.pop('parent_name'))
         policy_q_dict['entries'] = policy_q_dict.pop('_network_policy_entries', None)
         net_back_refs = policy_q_dict.pop('_virtual_network_back_refs', None)
