@@ -513,7 +513,6 @@ class DBInterface(object):
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
         ipam_q_dict['tenant_id'] = self.manager.tenant_name_to_id(ipam_q_dict.pop('parent_name'))
-        ipam_q_dict['fq_name'] = ipam_q_dict.pop('fq_name')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('network_ipam_mgmt', None)
         net_back_refs = ipam_q_dict.pop('virtual_network_back_refs', None)
         if net_back_refs:
@@ -548,7 +547,6 @@ class DBInterface(object):
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
-        policy_q_dict['fq_name'] = policy_q_dict.pop('fq_name')
         policy_q_dict['tenant_id'] = self.manager.tenant_name_to_id(policy_q_dict.pop('parent_name'))
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries', None)
         net_back_refs = policy_q_dict.pop('virtual_network_back_refs', None)
