@@ -828,7 +828,7 @@ class DBInterface(object):
         if ip_back_refs:
             for ip_back_ref in ip_back_refs:
                 try:
-                    ip_obj = self._vnc_lib.instance_ip_read(fq_name = ip_back_ref['uuid'])
+                    ip_obj = self._vnc_lib.instance_ip_read(id = ip_back_ref['uuid'])
                 except NoIdError:
                     continue
 
@@ -1005,7 +1005,7 @@ class DBInterface(object):
         subnet_info = self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
                                                   ipam_fq_name)
 
-        self._db_cache['q_subnets'][subnet_id] = subnet_info
+        #self._db_cache['q_subnets'][subnet_id] = subnet_info
 
         return subnet_info
     #end subnet_create
@@ -1273,7 +1273,7 @@ class DBInterface(object):
             if not fip_back_refs:
                 continue
             for fip_back_ref in fip_back_refs:
-                fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
+                fip_obj = self._vnc_lib.floating_ip_read(id = fip_back_ref['uuid'])
                 ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
 
         return ret_list
@@ -1309,10 +1309,10 @@ class DBInterface(object):
         fixed_ips =  [{'ip_address': '%s' %(ip_addr), 'subnet_id': sn_id}]
 
         # TODO below reads back default parent name, fix it
-        port_obj = self._virtual_machine_interface_read(id = port_id)
+        port_obj = self._virtual_machine_interface_read(port_id = port_id)
 
         ret_port_q = self._port_vnc_to_quantum(port_obj)
-        self._db_cache['q_ports'][port_id] = ret_port_q
+        #self._db_cache['q_ports'][port_id] = ret_port_q
 
         return ret_port_q
     #end port_create
