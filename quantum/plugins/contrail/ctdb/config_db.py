@@ -48,7 +48,7 @@ class DBInterface(object):
         self._db_cache['vnc_networks'] = {}
         self._db_cache['vnc_ports'] = {}
         self._db_cache['vnc_projects'] = {}
-
+        self._db_cache['vnc_instance_ips'] = {}
 
         # Retry till a api-server is up
         connected = False
@@ -118,7 +118,10 @@ class DBInterface(object):
     def _project_read(self, proj_id = None, fq_name = None):
         if proj_id:
             try:
-                return self._db_cache['vnc_projects'][proj_id]
+                # disable cache for now as fip pool might be put without 
+                # quantum knowing it
+                raise KeyError
+                #return self._db_cache['vnc_projects'][proj_id]
             except KeyError:
                 proj_obj = self._vnc_lib.project_read(id = proj_id)
                 fq_name_str = json.dumps(proj_obj.get_fq_name())
@@ -129,7 +132,10 @@ class DBInterface(object):
         if fq_name:
             fq_name_str = json.dumps(fq_name)
             try:
-                return self._db_cache['vnc_projects'][fq_name_str]
+                # disable cache for now as fip pool might be put without 
+                # quantum knowing it
+                raise KeyError
+                #return self._db_cache['vnc_projects'][fq_name_str]
             except KeyError:
                 net_obj = self._vnc_lib.project_read(fq_name = fq_name)
                 self._db_cache['vnc_projects'][fq_name_str] = proj_obj
@@ -198,7 +204,7 @@ class DBInterface(object):
 
     def _virtual_machine_interface_create(self, port_obj):
         port_uuid = self._vnc_lib.virtual_machine_interface_create(port_obj)
-        fq_name_str = json.dumps(port_obj.get_fq_name())
+        #fq_name_str = json.dumps(port_obj.get_fq_name())
 
         #self._db_cache['vnc_ports'][port_uuid] = port_obj
         #self._db_cache['vnc_ports'][fq_name_str] = port_obj
@@ -254,6 +260,65 @@ class DBInterface(object):
         except KeyError:
             pass
     #end _virtual_machine_interface_delete
+
+    def _instance_ip_create(self, iip_obj):
+        iip_uuid = self._vnc_lib.instance_ip_create(iip_obj)
+        #fq_name_str = json.dumps(iip_obj.get_fq_name())
+
+        #self._db_cache['vnc_instance_ips'][iip_uuid] = iip_obj
+        #self._db_cache['vnc_instance_ips'][fq_name_str] = iip_obj
+
+        return iip_uuid
+    #end _instance_ip_create
+
+    def _instance_ip_read(self, instance_ip_id = None, fq_name = None):
+        if instance_ip_id:
+            try:
+                return self._db_cache['vnc_instance_ips'][instance_ip_id]
+            except KeyError:
+                iip_obj = self._vnc_lib.instance_ip_read(id = instance_ip_id)
+                fq_name_str = json.dumps(iip_obj.get_fq_name())
+                self._db_cache['vnc_instance_ips'][instance_ip_id] = iip_obj
+                self._db_cache['vnc_instance_ips'][fq_name_str] = iip_obj
+                return iip_obj
+
+        if fq_name:
+            fq_name_str = json.dumps(fq_name)
+            try:
+                return self._db_cache['vnc_instance_ips'][fq_name_str]
+            except KeyError:
+                iip_obj = self._vnc_lib.instance_ip_read(fq_name = fq_name)
+                self._db_cache['vnc_instances_ips'][fq_name_str] = iip_obj
+                self._db_cache['vnc_instance_ips'][iip_obj.uuid] = iip_obj
+                return iip_obj
+                
+    #end _instance_ip_read
+
+    def _instance_ip_update(self, iip_obj):
+        self._vnc_lib.instance_ip_update(iip_obj)
+        fq_name_str = json.dumps(iip_obj.get_fq_name())
+
+        self._db_cache['vnc_instance_ips'][iip_obj.uuid] = iip_obj
+        self._db_cache['vnc_instance_ips'][fq_name_str] = iip_obj
+    #end _instance_ip_update
+
+    def _instance_ip_delete(self, iip_id):
+        fq_name_str = None
+        try:
+            iip_obj = self._db_cache['vnc_instance_ips'][iip_id]
+            fq_name_str = json.dumps(iip_obj.get_fq_name())
+        except KeyError:
+            pass
+
+        self._vnc_lib.instance_ip_delete(id = iip_id)
+
+        try:
+            del self._db_cache['vnc_instance_ips'][iip_id]
+            if fq_name_str:
+                del self._db_cache['vnc_instance_ips'][fq_name_str]
+        except KeyError:
+            pass
+    #end _instance_ip_delete
 
     # find projects on a given domain
     def _project_list_domain(self, domain_id):
@@ -828,7 +893,7 @@ class DBInterface(object):
         if ip_back_refs:
             for ip_back_ref in ip_back_refs:
                 try:
-                    ip_obj = self._vnc_lib.instance_ip_read(id = ip_back_ref['uuid'])
+                    ip_obj = self._instance_ip_read(instance_ip_id = ip_back_ref['uuid'])
                 except NoIdError:
                     continue
 
@@ -892,7 +957,7 @@ class DBInterface(object):
     #end network_update
 
     def network_delete(self, net_id):
-        self._virtual_network_delete(id = net_id)
+        self._virtual_network_delete(net_id = net_id)
         try:
             del self._db_cache['q_networks'][net_id]
         except KeyError:
@@ -1300,10 +1365,10 @@ class DBInterface(object):
 
         # create the objects
         port_id = self._virtual_machine_interface_create(port_obj)
-        ip_id = self._vnc_lib.instance_ip_create(ip_obj)
+        ip_id = self._instance_ip_create(ip_obj)
 
         # read back the allocated ip address
-        ip_obj = self._vnc_lib.instance_ip_read(id = ip_id)
+        ip_obj = self._instance_ip_read(instance_ip_id = ip_id)
         ip_addr = ip_obj.get_instance_ip_address()
         sn_id = self._ip_address_to_subnet_id(ip_addr, net_obj)
         fixed_ips =  [{'ip_address': '%s' %(ip_addr), 'subnet_id': sn_id}]
@@ -1351,14 +1416,13 @@ class DBInterface(object):
         iip_back_refs = port_obj.get_instance_ip_back_refs()
         if iip_back_refs:
             for iip_back_ref in iip_back_refs:
-                iip_obj = self._vnc_lib.instance_ip_read(fq_name = iip_back_ref['to'])
-                self._vnc_lib.instance_ip_delete(id = iip_obj.uuid)
+                self._instance_ip_delete(instance_ip_id = iip_back_ref['uuid'])
 
         # disassociate any floating IP used by instance
         fip_back_refs = port_obj.get_floating_ip_back_refs()
         if fip_back_refs:
             for fip_back_ref in fip_back_refs:
-                fip_obj = self._vnc_lib.floating_ip_read(fq_name = fip_back_ref['to'])
+                fip_obj = self._vnc_lib.floating_ip_read(id = fip_back_ref['uuid'])
                 self.floatingip_update(fip_obj.uuid, {'port_id': None})
 
         self._virtual_machine_interface_delete(id = port_id)
@@ -1369,8 +1433,7 @@ class DBInterface(object):
         if not inst_intfs:
             # remove ref from vrouter
             vrouter_back_refs = inst_obj.get_virtual_router_back_refs()
-            fq_name = vrouter_back_refs[0]['to']
-            vrouter_obj = self._vnc_lib.virtual_router_read(fq_name = fq_name)
+            vrouter_obj = self._vnc_lib.virtual_router_read(id = vrouter_back_refs[0]['uuid'])
             vrouter_obj.del_virtual_machine(inst_obj)
             self._vnc_lib.virtual_router_update(vrouter_obj)
 
