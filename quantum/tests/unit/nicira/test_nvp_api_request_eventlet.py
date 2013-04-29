@@ -16,7 +16,6 @@ import httplib
 import logging
 import new
 import random
-import unittest
 
 import eventlet
 from eventlet.green import urllib2
@@ -27,6 +26,7 @@ from quantum.plugins.nicira.nicira_nvp_plugin.api_client import (
     client_eventlet as nace,
     request_eventlet as nare,
 )
+from quantum.tests import base
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -40,10 +40,11 @@ def fetch(url):
     return urllib2.urlopen(url).read()
 
 
-class NvpApiRequestEventletTest(unittest.TestCase):
+class NvpApiRequestEventletTest(base.BaseTestCase):
 
     def setUp(self):
 
+        super(NvpApiRequestEventletTest, self).setUp()
         self.client = nace.NvpApiClientEventlet(
             [("127.0.0.1", 4401, True)], "admin", "admin")
         self.url = "/ws.v1/_debug"
@@ -52,6 +53,7 @@ class NvpApiRequestEventletTest(unittest.TestCase):
     def tearDown(self):
         self.client = None
         self.req = None
+        super(NvpApiRequestEventletTest, self).tearDown()
 
     def test_construct_eventlet_api_request(self):
         e = nare.NvpApiRequestEventlet(self.client, self.url)
@@ -134,7 +136,6 @@ class NvpApiRequestEventletTest(unittest.TestCase):
         myconn.__str__.return_value = 'myconn string'
 
         req = self.req
-        req._request_timeout = REQUEST_TIMEOUT = 1
         req._redirect_params = Mock()
         req._redirect_params.return_value = (myconn, 'url')
         req._request_str = Mock()
@@ -214,60 +215,48 @@ class NvpApiRequestEventletTest(unittest.TestCase):
         with patch('quantum.plugins.nicira.nicira_nvp_plugin.api_client.'
                    'client_eventlet.NvpApiClientEventlet') as mock:
             api_client = mock.return_value
-            api_client.wait_for_login.return_value = None
-            api_client.auth_cookie = 'mycookie'
-            api_client.acquire_connection.return_value = True
+            self.req._api_client = api_client
             myconn = Mock()
             (conn, retval) = self.req._redirect_params(
                 myconn, [('location', 'https://host:1/path')])
 
             self.assertTrue(retval is not None)
-            self.assertTrue(api_client.wait_for_login.called)
-            self.assertTrue(api_client.acquire_connection.called)
+            self.assertTrue(api_client.acquire_redirect_connection.called)
 
     def test_redirect_params_setup_htttps_and_query(self):
         with patch('quantum.plugins.nicira.nicira_nvp_plugin.api_client.'
                    'client_eventlet.NvpApiClientEventlet') as mock:
             api_client = mock.return_value
-            api_client.wait_for_login.return_value = None
-            api_client.auth_cookie = 'mycookie'
-            api_client.acquire_connection.return_value = True
+            self.req._api_client = api_client
             myconn = Mock()
             (conn, retval) = self.req._redirect_params(myconn, [
                 ('location', 'https://host:1/path?q=1')])
 
             self.assertTrue(retval is not None)
-            self.assertTrue(api_client.wait_for_login.called)
-            self.assertTrue(api_client.acquire_connection.called)
+            self.assertTrue(api_client.acquire_redirect_connection.called)
 
     def test_redirect_params_setup_https_connection_no_cookie(self):
         with patch('quantum.plugins.nicira.nicira_nvp_plugin.api_client.'
                    'client_eventlet.NvpApiClientEventlet') as mock:
             api_client = mock.return_value
-            api_client.wait_for_login.return_value = None
-            api_client.auth_cookie = None
-            api_client.acquire_connection.return_value = True
+            self.req._api_client = api_client
             myconn = Mock()
             (conn, retval) = self.req._redirect_params(myconn, [
                 ('location', 'https://host:1/path')])
 
             self.assertTrue(retval is not None)
-            self.assertTrue(api_client.wait_for_login.called)
-            self.assertTrue(api_client.acquire_connection.called)
+            self.assertTrue(api_client.acquire_redirect_connection.called)
 
     def test_redirect_params_setup_https_and_query_no_cookie(self):
         with patch('quantum.plugins.nicira.nicira_nvp_plugin.api_client.'
                    'client_eventlet.NvpApiClientEventlet') as mock:
             api_client = mock.return_value
-            api_client.wait_for_login.return_value = None
-            api_client.auth_cookie = None
-            api_client.acquire_connection.return_value = True
+            self.req._api_client = api_client
             myconn = Mock()
             (conn, retval) = self.req._redirect_params(
                 myconn, [('location', 'https://host:1/path?q=1')])
             self.assertTrue(retval is not None)
-            self.assertTrue(api_client.wait_for_login.called)
-            self.assertTrue(api_client.acquire_connection.called)
+            self.assertTrue(api_client.acquire_redirect_connection.called)
 
     def test_redirect_params_path_only_with_query(self):
         with patch('quantum.plugins.nicira.nicira_nvp_plugin.api_client.'

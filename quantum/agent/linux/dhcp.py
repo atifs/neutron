@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2012 OpenStack LLC
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,37 +16,40 @@
 #    under the License.
 
 import abc
-import logging
 import os
 import re
+import shutil
 import socket
 import StringIO
 import sys
-import tempfile
 
 import netaddr
+from oslo.config import cfg
 
 from quantum.agent.linux import ip_lib
 from quantum.agent.linux import utils
-from quantum.openstack.common import cfg
 from quantum.openstack.common import jsonutils
+from quantum.openstack.common import log as logging
+from quantum.openstack.common import uuidutils
 
 LOG = logging.getLogger(__name__)
 
 OPTS = [
     cfg.StrOpt('dhcp_confs',
                default='$state_path/dhcp',
-               help='Location to store DHCP server config files'),
+               help=_('Location to store DHCP server config files')),
     cfg.IntOpt('dhcp_lease_time',
                default=120,
-               help='Lifetime of a DHCP lease in seconds'),
+               help=_('Lifetime of a DHCP lease in seconds')),
     cfg.StrOpt('dhcp_domain',
                default='openstacklocal',
-               help='Domain to use for building the hostnames'),
+               help=_('Domain to use for building the hostnames')),
     cfg.StrOpt('dnsmasq_config_file',
-               help='Override the default dnsmasq settings with this file'),
+               default='',
+               help=_('Override the default dnsmasq settings with this file')),
     cfg.StrOpt('dnsmasq_dns_server',
-               help='Use another DNS server before any in /etc/resolv.conf.'),
+               help=_('Use another DNS server before any in '
+                      '/etc/resolv.conf.')),
 ]
 
 IPV4 = 4
@@ -56,6 +59,7 @@ TCP = 'tcp'
 DNS_PORT = 53
 DHCPV4_PORT = 67
 DHCPV6_PORT = 467
+METADATA_DEFAULT_IP = '169.254.169.254'
 
 
 class DhcpBase(object):
@@ -89,6 +93,12 @@ class DhcpBase(object):
     @abc.abstractmethod
     def reload_allocations(self):
         """Force the DHCP server to reload the assignment database."""
+
+    @classmethod
+    def existing_dhcp_networks(cls, conf, root_helper):
+        """Return a list of existing networks ids (ones we have configs for)"""
+
+        raise NotImplementedError
 
 
 class DhcpLocalProcess(DhcpBase):
@@ -127,10 +137,17 @@ class DhcpLocalProcess(DhcpBase):
                 self.device_delegate.destroy(self.network, self.interface_name)
 
         elif pid:
-            LOG.debug(_('DHCP for %s pid %d is stale, ignoring command') %
-                      (self.network.id, pid))
+            LOG.debug(_('DHCP for %(net_id)s pid %(pid)d is stale, ignoring '
+                        'command'), {'net_id': self.network.id, 'pid': pid})
         else:
-            LOG.debug(_('No DHCP started for %s') % self.network.id)
+            LOG.debug(_('No DHCP started for %s'), self.network.id)
+
+        self._remove_config_files()
+
+    def _remove_config_files(self):
+        confs_dir = os.path.abspath(os.path.normpath(self.conf.dhcp_confs))
+        conf_dir = os.path.join(confs_dir, self.network.id)
+        shutil.rmtree(conf_dir, ignore_errors=True)
 
     def get_conf_file_name(self, kind, ensure_conf_dir=False):
         """Returns the file name for a given kind of config file."""
@@ -167,6 +184,9 @@ class DhcpLocalProcess(DhcpBase):
     @property
     def active(self):
         pid = self.pid
+        if pid is None:
+            return False
+
         cmd = ['cat', '/proc/%s/cmdline' % pid]
         try:
             return self.network.id in utils.execute(cmd, self.root_helper)
@@ -181,7 +201,7 @@ class DhcpLocalProcess(DhcpBase):
     def interface_name(self, value):
         interface_file_path = self.get_conf_file_name('interface',
                                                       ensure_conf_dir=True)
-        replace_file(interface_file_path, value)
+        utils.replace_file(interface_file_path, value)
 
     @abc.abstractmethod
     def spawn_process(self):
@@ -201,6 +221,22 @@ class Dnsmasq(DhcpLocalProcess):
     QUANTUM_NETWORK_ID_KEY = 'QUANTUM_NETWORK_ID'
     QUANTUM_RELAY_SOCKET_PATH_KEY = 'QUANTUM_RELAY_SOCKET_PATH'
 
+    @classmethod
+    def existing_dhcp_networks(cls, conf, root_helper):
+        """Return a list of existing networks ids (ones we have configs for)"""
+
+        confs_dir = os.path.abspath(os.path.normpath(conf.dhcp_confs))
+
+        class FakeNetwork:
+            def __init__(self, net_id):
+                self.id = net_id
+
+        return [
+            c for c in os.listdir(confs_dir)
+            if (uuidutils.is_uuid_like(c) and
+                cls(conf, FakeNetwork(c), root_helper).active)
+        ]
+
     def spawn_process(self):
         """Spawns a Dnsmasq process for the network."""
         env = {
@@ -217,9 +253,8 @@ class Dnsmasq(DhcpLocalProcess):
             '--bind-interfaces',
             '--interface=%s' % self.interface_name,
             '--except-interface=lo',
-            '--domain=%s' % self.conf.dhcp_domain,
-            '--pid-file=%s' % self.get_conf_file_name('pid',
-                                                      ensure_conf_dir=True),
+            '--pid-file=%s' % self.get_conf_file_name(
+                'pid', ensure_conf_dir=True),
             #TODO (mark): calculate value from cidr (defaults to 150)
             #'--dhcp-lease-max=%s' % ?,
             '--dhcp-hostsfile=%s' % self._output_hosts_file(),
@@ -244,10 +279,12 @@ class Dnsmasq(DhcpLocalProcess):
                         mode,
                         self.conf.dhcp_lease_time))
 
-        if self.conf.dnsmasq_config_file:
-            cmd.append('--conf-file=%s' % self.conf.dnsmasq_config_file)
+        cmd.append('--conf-file=%s' % self.conf.dnsmasq_config_file)
         if self.conf.dnsmasq_dns_server:
             cmd.append('--server=%s' % self.conf.dnsmasq_dns_server)
+
+        if self.conf.dhcp_domain:
+            cmd.append('--domain=%s' % self.conf.dhcp_domain)
 
         if self.namespace:
             ip_wrapper = ip_lib.IPWrapper(self.root_helper, self.namespace)
@@ -258,14 +295,15 @@ class Dnsmasq(DhcpLocalProcess):
             utils.execute(cmd, self.root_helper)
 
     def reload_allocations(self):
-        """If all subnets turn off dhcp, kill the process."""
+        """Rebuild the dnsmasq config and signal the dnsmasq to reload."""
+
+        # If all subnets turn off dhcp, kill the process.
         if not self._enable_dhcp():
             self.disable()
-            LOG.debug(_('Killing dhcpmasq for network since all subnets have \
-                         turned off DHCP: %s') % self.network.id)
+            LOG.debug(_('Killing dhcpmasq for network since all subnets have '
+                        'turned off DHCP: %s'), self.network.id)
             return
 
-        """Rebuilds the dnsmasq config and signal the dnsmasq to reload."""
         self._output_hosts_file()
         self._output_opts_file()
         cmd = ['kill', '-HUP', self.pid]
@@ -275,7 +313,7 @@ class Dnsmasq(DhcpLocalProcess):
             ip_wrapper.netns.execute(cmd)
         else:
             utils.execute(cmd, self.root_helper)
-        LOG.debug(_('Reloading allocations for network: %s') % self.network.id)
+        LOG.debug(_('Reloading allocations for network: %s'), self.network.id)
 
     def _output_hosts_file(self):
         """Writes a dnsmasq compatible hosts file."""
@@ -290,11 +328,15 @@ class Dnsmasq(DhcpLocalProcess):
                           (port.mac_address, name, alloc.ip_address))
 
         name = self.get_conf_file_name('host')
-        replace_file(name, buf.getvalue())
+        utils.replace_file(name, buf.getvalue())
         return name
 
     def _output_opts_file(self):
         """Write a dnsmasq compatible options file."""
+
+        if self.conf.enable_isolated_metadata:
+            subnet_to_interface_ip = self._make_subnet_interface_ip_map()
+
         options = []
         for i, subnet in enumerate(self.network.subnets):
             if not subnet.enable_dhcp:
@@ -306,6 +348,19 @@ class Dnsmasq(DhcpLocalProcess):
 
             host_routes = ["%s,%s" % (hr.destination, hr.nexthop)
                            for hr in subnet.host_routes]
+
+            # Add host routes for isolated network segments
+            enable_metadata = (
+                self.conf.enable_isolated_metadata
+                and not subnet.gateway_ip
+                and subnet.ip_version == 4)
+
+            if enable_metadata:
+                subnet_dhcp_ip = subnet_to_interface_ip[subnet.id]
+                host_routes.append(
+                    '%s/32,%s' % (METADATA_DEFAULT_IP, subnet_dhcp_ip)
+                )
+
             if host_routes:
                 options.append(
                     self._format_option(i, 'classless-static-route',
@@ -319,8 +374,30 @@ class Dnsmasq(DhcpLocalProcess):
                     options.append(self._format_option(i, 'router'))
 
         name = self.get_conf_file_name('opts')
-        replace_file(name, '\n'.join(options))
+        utils.replace_file(name, '\n'.join(options))
         return name
+
+    def _make_subnet_interface_ip_map(self):
+        ip_dev = ip_lib.IPDevice(
+            self.interface_name,
+            self.root_helper,
+            self.namespace
+        )
+
+        subnet_lookup = dict(
+            (netaddr.IPNetwork(subnet.cidr), subnet.id)
+            for subnet in self.network.subnets
+        )
+
+        retval = {}
+
+        for addr in ip_dev.addr.list():
+            ip_net = netaddr.IPNetwork(addr['cidr'])
+
+            if ip_net in subnet_lookup:
+                retval[subnet_lookup[ip_net]] = addr['cidr'].split('/')[0]
+
+        return retval
 
     def _lease_relay_script_path(self):
         return os.path.join(os.path.dirname(sys.argv[0]),
@@ -355,20 +432,3 @@ class Dnsmasq(DhcpLocalProcess):
             sock.connect(dhcp_relay_socket)
             sock.send(jsonutils.dumps(data))
             sock.close()
-
-
-def replace_file(file_name, data):
-    """Replaces the contents of file_name with data in a safe manner.
-
-    First write to a temp file and then rename. Since POSIX renames are
-    atomic, the file is unlikely to be corrupted by competing writes.
-
-    We create the tempfile on the same device to ensure that it can be renamed.
-    """
-
-    base_dir = os.path.dirname(os.path.abspath(file_name))
-    tmp_file = tempfile.NamedTemporaryFile('w+', dir=base_dir, delete=False)
-    tmp_file.write(data)
-    tmp_file.close()
-    os.chmod(tmp_file.name, 0644)
-    os.rename(tmp_file.name, file_name)

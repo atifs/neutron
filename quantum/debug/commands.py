@@ -1,5 +1,5 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
+
 # Copyright 2012,  Nachi Ueno,  NTT MCL,  Inc.
 # All Rights Reserved.
 #
@@ -15,13 +15,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import logging
-
 from cliff import lister
-
 from quantumclient.common import utils
-from quantumclient.quantum.v2_0 import QuantumCommand
 from quantumclient.quantum.v2_0.port import _format_fixed_ips
+from quantumclient.quantum.v2_0 import QuantumCommand
+
+from quantum.openstack.common import log as logging
 
 
 class ProbeCommand(QuantumCommand):
@@ -44,13 +43,18 @@ class CreateProbe(ProbeCommand):
         parser = super(CreateProbe, self).get_parser(prog_name)
         parser.add_argument(
             'id', metavar='network_id',
-            help='ID of network to probe')
+            help=_('ID of network to probe'))
+        parser.add_argument(
+            '--device-owner',
+            default='network', choices=['network', 'compute'],
+            help=_('owner type of the device: network/compute'))
         return parser
 
     def run(self, parsed_args):
         self.log.debug('run(%s)' % parsed_args)
         debug_agent = self.get_debug_agent()
-        port = debug_agent.create_probe(parsed_args.id)
+        port = debug_agent.create_probe(parsed_args.id,
+                                        parsed_args.device_owner)
         self.app.stdout.write(_('Probe created : %s ') % port.id + '\n')
 
 
@@ -63,7 +67,7 @@ class DeleteProbe(ProbeCommand):
         parser = super(DeleteProbe, self).get_parser(prog_name)
         parser.add_argument(
             'id', metavar='port_id',
-            help='ID of probe port to delete')
+            help=_('ID of probe port to delete'))
         return parser
 
     def run(self, parsed_args):
@@ -114,12 +118,12 @@ class ExecProbe(ProbeCommand):
         parser = super(ExecProbe, self).get_parser(prog_name)
         parser.add_argument(
             'id', metavar='port_id',
-            help='ID of probe port to execute command')
+            help=_('ID of probe port to execute command'))
         parser.add_argument(
             'command', metavar='command',
             nargs='?',
             default=None,
-            help='Command to execute')
+            help=_('Command to execute'))
         return parser
 
     def run(self, parsed_args):
@@ -140,11 +144,11 @@ class PingAll(ProbeCommand):
         parser.add_argument(
             '--timeout', metavar='<timeout>',
             default=10,
-            help='Ping timeout')
+            help=_('Ping timeout'))
         parser.add_argument(
             '--id', metavar='network_id',
             default=None,
-            help='ID of network')
+            help=_('ID of network'))
         return parser
 
     def run(self, parsed_args):

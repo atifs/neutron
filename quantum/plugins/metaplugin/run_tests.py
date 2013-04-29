@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2010 OpenStack, LLC
+# Copyright 2010 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +29,6 @@ import os
 import sys
 
 from nose import config
-from nose import core
 
 sys.path.append(os.getcwd())
 sys.path.append(os.path.dirname(__file__))

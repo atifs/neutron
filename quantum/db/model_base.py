@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ from sqlalchemy import orm
 
 class QuantumBase(object):
     """Base class for Quantum Models."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
 
     def __setitem__(self, key, value):
         setattr(self, key, value)
@@ -51,6 +52,14 @@ class QuantumBase(object):
         local.update(joined)
         return local.iteritems()
 
+    def __repr__(self):
+        """sqlalchemy based automatic __repr__ method"""
+        items = ['%s=%r' % (col.name, getattr(self, col.name))
+                 for col in self.__table__.columns]
+        return "<%s.%s[object at %x] {%s}>" % (self.__class__.__module__,
+                                               self.__class__.__name__,
+                                               id(self), ', '.join(items))
+
 
 class QuantumBaseV2(QuantumBase):
 
@@ -60,5 +69,4 @@ class QuantumBaseV2(QuantumBase):
         return cls.__name__.lower() + 's'
 
 
-BASE = declarative.declarative_base(cls=QuantumBase)
 BASEV2 = declarative.declarative_base(cls=QuantumBaseV2)

@@ -19,17 +19,17 @@ Unit Tests for openvswitch rpc
 """
 
 import stubout
-import unittest2
 
 from quantum.agent import rpc as agent_rpc
 from quantum.common import topics
 from quantum.openstack.common import context
 from quantum.openstack.common import rpc
-from quantum.plugins.openvswitch import ovs_quantum_plugin as povs
 from quantum.plugins.openvswitch.common import constants
+from quantum.plugins.openvswitch import ovs_quantum_plugin as povs
+from quantum.tests import base
 
 
-class rpcApiTestCase(unittest2.TestCase):
+class rpcApiTestCase(base.BaseTestCase):
 
     def _test_ovs_api(self, rpcapi, topic, method, rpc_method, **kwargs):
         ctxt = context.RequestContext('fake_user', 'fake_project')
@@ -108,3 +108,10 @@ class rpcApiTestCase(unittest2.TestCase):
         self._test_ovs_api(rpcapi, topics.PLUGIN,
                            'tunnel_sync', rpc_method='call',
                            tunnel_ip='fake_tunnel_ip')
+
+    def test_update_device_up(self):
+        rpcapi = agent_rpc.PluginApi(topics.PLUGIN)
+        self._test_ovs_api(rpcapi, topics.PLUGIN,
+                           'update_device_up', rpc_method='call',
+                           device='fake_device',
+                           agent_id='fake_agent_id')

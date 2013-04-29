@@ -15,14 +15,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import itertools
 import sys
+
+from oslo.config import cfg
 
 from quantum.agent.common import config
 from quantum.agent.linux import interface
-import quantum.debug.commands
 from quantum.debug.debug_agent import QuantumDebugAgent
-from quantum.openstack.common import cfg
 from quantum.openstack.common import importutils
 from quantumclient.common import exceptions as exc
 from quantumclient.common import utils
@@ -57,21 +56,21 @@ class QuantumDebugShell(QuantumShell):
             description, version)
         parser.add_argument(
             '--config-file',
-            default=env('TEST_CONFIG_FILE'),
-            help='Config file for interface driver '
-                 '(You may also use either the '
-                 'l3_agent.ini or the dhcp_agent.ini)')
+            default=env('QUANTUM_TEST_CONFIG_FILE'),
+            help=_('Config file for interface driver '
+                   '(You may also use l3_agent.ini)'))
         return parser
 
     def initialize_app(self, argv):
         super(QuantumDebugShell, self).initialize_app(argv)
         if not self.options.config_file:
             raise exc.CommandError(
-                "You must provide a config file for bridge -"
-                " either --config-file or env[TEST_CONFIG_FILE]")
+                _("You must provide a config file for bridge -"
+                  " either --config-file or env[QUANTUM_TEST_CONFIG_FILE]"))
         client = self.client_manager.quantum
         cfg.CONF.register_opts(interface.OPTS)
         cfg.CONF.register_opts(QuantumDebugAgent.OPTS)
+        config.register_root_helper(cfg.CONF)
         cfg.CONF(['--config-file', self.options.config_file])
         config.setup_logging(cfg.CONF)
         driver = importutils.import_object(cfg.CONF.interface_driver, cfg.CONF)
@@ -80,6 +79,3 @@ class QuantumDebugShell(QuantumShell):
 
 def main(argv=None):
     return QuantumDebugShell(QUANTUM_API_VERSION).run(argv or sys.argv[1:])
-
-if __name__ == "__main__":
-    sys.exit(main())

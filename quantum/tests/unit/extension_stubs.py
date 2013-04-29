@@ -1,5 +1,5 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,7 +16,7 @@
 
 from abc import abstractmethod
 
-from quantum.extensions import extensions
+from quantum.api import extensions
 from quantum import wsgi
 
 

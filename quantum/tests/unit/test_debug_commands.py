@@ -16,19 +16,17 @@
 #    under the License.
 
 import socket
-import sys
-import uuid
 
 import mock
-import unittest2 as unittest
+from oslo.config import cfg
 
 from quantum.agent.common import config
 from quantum.agent.linux import interface
-from quantum.agent.linux import utils
-from quantum.common import exceptions
 from quantum.debug import commands
-from quantum.debug.debug_agent import DEVICE_OWNER_PROBE, QuantumDebugAgent
-from quantum.openstack.common import cfg
+from quantum.debug.debug_agent import DEVICE_OWNER_COMPUTE_PROBE
+from quantum.debug.debug_agent import DEVICE_OWNER_NETWORK_PROBE
+from quantum.debug.debug_agent import QuantumDebugAgent
+from quantum.tests import base
 
 
 class MyApp(object):
@@ -36,17 +34,18 @@ class MyApp(object):
         self.stdout = _stdout
 
 
-class TestDebugCommands(unittest.TestCase):
+class TestDebugCommands(base.BaseTestCase):
     def setUp(self):
+        super(TestDebugCommands, self).setUp()
         cfg.CONF.register_opts(interface.OPTS)
         cfg.CONF.register_opts(QuantumDebugAgent.OPTS)
-        cfg.CONF(args=sys.argv, project='quantum')
+        cfg.CONF(args=[], project='quantum')
         cfg.CONF.set_override('use_namespaces', True)
-        cfg.CONF.root_helper = 'sudo'
+        config.register_root_helper(cfg.CONF)
 
         self.addCleanup(mock.patch.stopall)
         device_exists_p = mock.patch(
-            'quantum.agent.linux.ip_lib.device_exists')
+            'quantum.agent.linux.ip_lib.device_exists', return_value=False)
         device_exists_p.start()
         namespace_p = mock.patch(
             'quantum.agent.linux.ip_lib.IpNetnsCommand')
@@ -77,7 +76,7 @@ class TestDebugCommands(unittest.TestCase):
                      'mac_address': 'aa:bb:cc:dd:ee:ffa',
                      'network_id': 'fake_net',
                      'fixed_ips':
-                     [{'subnet_id': 'fake_subnet', 'ip_address':'10.0.0.3'}]
+                     [{'subnet_id': 'fake_subnet', 'ip_address': '10.0.0.3'}]
                      }}
         fake_ports = {'ports': [fake_port['port']]}
         self.fake_ports = fake_ports
@@ -106,14 +105,17 @@ class TestDebugCommands(unittest.TestCase):
                                                  client_inst,
                                                  mock_driver)
 
-    def test_create_probe(self):
+    def _test_create_probe(self, device_owner):
         cmd = commands.CreateProbe(self.app, None)
         cmd_parser = cmd.get_parser('create_probe')
-        args = ['fake_net']
+        if device_owner == DEVICE_OWNER_COMPUTE_PROBE:
+            args = ['fake_net', '--device-owner', 'compute']
+        else:
+            args = ['fake_net']
         parsed_args = cmd_parser.parse_args(args)
         cmd.run(parsed_args)
         fake_port = {'port':
-                    {'device_owner': DEVICE_OWNER_PROBE,
+                    {'device_owner': device_owner,
                      'admin_state_up': True,
                      'network_id': 'fake_net',
                      'tenant_id': 'fake_tenant',
@@ -124,10 +126,67 @@ class TestDebugCommands(unittest.TestCase):
                                       mock.call.show_subnet('fake_subnet'),
                                       mock.call.create_port(fake_port),
                                       mock.call.show_subnet('fake_subnet')])
-        self.driver.assert_has_calls([mock.call.init_l3('tap12345678-12',
+        self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
+                                      mock.call.plug('fake_net',
+                                                     'fake_port',
+                                                     'tap12345678-12',
+                                                     'aa:bb:cc:dd:ee:ffa',
+                                                     bridge=None,
+                                                     namespace=namespace),
+                                      mock.call.init_l3('tap12345678-12',
                                                         ['10.0.0.3/24'],
                                                         namespace=namespace
                                                         )])
+
+    def test_create_newwork_probe(self):
+        self._test_create_probe(DEVICE_OWNER_NETWORK_PROBE)
+
+    def test_create_nova_probe(self):
+        self._test_create_probe(DEVICE_OWNER_COMPUTE_PROBE)
+
+    def _test_create_probe_external(self, device_owner):
+        fake_network = {'network': {'id': 'fake_net',
+                                    'tenant_id': 'fake_tenant',
+                                    'router:external': True,
+                                    'subnets': ['fake_subnet']}}
+        self.client.show_network.return_value = fake_network
+        cmd = commands.CreateProbe(self.app, None)
+        cmd_parser = cmd.get_parser('create_probe')
+        if device_owner == DEVICE_OWNER_COMPUTE_PROBE:
+            args = ['fake_net', '--device-owner', 'compute']
+        else:
+            args = ['fake_net']
+        parsed_args = cmd_parser.parse_args(args)
+        cmd.run(parsed_args)
+        fake_port = {'port':
+                    {'device_owner': device_owner,
+                     'admin_state_up': True,
+                     'network_id': 'fake_net',
+                     'tenant_id': 'fake_tenant',
+                     'fixed_ips': [{'subnet_id': 'fake_subnet'}],
+                     'device_id': socket.gethostname()}}
+        namespace = 'qprobe-fake_port'
+        self.client.assert_has_calls([mock.call.show_network('fake_net'),
+                                      mock.call.show_subnet('fake_subnet'),
+                                      mock.call.create_port(fake_port),
+                                      mock.call.show_subnet('fake_subnet')])
+        self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
+                                      mock.call.plug('fake_net',
+                                                     'fake_port',
+                                                     'tap12345678-12',
+                                                     'aa:bb:cc:dd:ee:ffa',
+                                                     bridge='br-ex',
+                                                     namespace=namespace),
+                                      mock.call.init_l3('tap12345678-12',
+                                                        ['10.0.0.3/24'],
+                                                        namespace=namespace
+                                                        )])
+
+    def test_create_network_probe_external(self):
+        self._test_create_probe_external(DEVICE_OWNER_NETWORK_PROBE)
+
+    def test_create_nova_probe_external(self):
+        self._test_create_probe_external(DEVICE_OWNER_COMPUTE_PROBE)
 
     def test_delete_probe(self):
         cmd = commands.DeleteProbe(self.app, None)
@@ -137,10 +196,34 @@ class TestDebugCommands(unittest.TestCase):
         cmd.run(parsed_args)
         namespace = 'qprobe-fake_port'
         self.client.assert_has_calls([mock.call.show_port('fake_port'),
+                                      mock.call.show_network('fake_net'),
+                                      mock.call.show_subnet('fake_subnet'),
                                       mock.call.delete_port('fake_port')])
         self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
                                       mock.call.unplug('tap12345678-12',
-                                      namespace=namespace)])
+                                      namespace=namespace,
+                                      bridge=None)])
+
+    def test_delete_probe_external(self):
+        fake_network = {'network': {'id': 'fake_net',
+                                    'tenant_id': 'fake_tenant',
+                                    'router:external': True,
+                                    'subnets': ['fake_subnet']}}
+        self.client.show_network.return_value = fake_network
+        cmd = commands.DeleteProbe(self.app, None)
+        cmd_parser = cmd.get_parser('delete_probe')
+        args = ['fake_port']
+        parsed_args = cmd_parser.parse_args(args)
+        cmd.run(parsed_args)
+        namespace = 'qprobe-fake_port'
+        self.client.assert_has_calls([mock.call.show_port('fake_port'),
+                                      mock.call.show_network('fake_net'),
+                                      mock.call.show_subnet('fake_subnet'),
+                                      mock.call.delete_port('fake_port')])
+        self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
+                                      mock.call.unplug('tap12345678-12',
+                                      namespace=namespace,
+                                      bridge='br-ex')])
 
     def test_delete_probe_without_namespace(self):
         cfg.CONF.set_override('use_namespaces', False)
@@ -150,9 +233,12 @@ class TestDebugCommands(unittest.TestCase):
         parsed_args = cmd_parser.parse_args(args)
         cmd.run(parsed_args)
         self.client.assert_has_calls([mock.call.show_port('fake_port'),
+                                      mock.call.show_network('fake_net'),
+                                      mock.call.show_subnet('fake_subnet'),
                                       mock.call.delete_port('fake_port')])
         self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
-                                      mock.call.unplug('tap12345678-12')])
+                                      mock.call.unplug('tap12345678-12',
+                                                       bridge=None)])
 
     def test_list_probe(self):
         cmd = commands.ListProbe(self.app, None)
@@ -161,7 +247,8 @@ class TestDebugCommands(unittest.TestCase):
         parsed_args = cmd_parser.parse_args(args)
         cmd.run(parsed_args)
         self.client.assert_has_calls(
-            [mock.call.list_ports(device_owner=DEVICE_OWNER_PROBE)])
+            [mock.call.list_ports(device_owner=[DEVICE_OWNER_NETWORK_PROBE,
+                                                DEVICE_OWNER_COMPUTE_PROBE])])
 
     def test_exec_command(self):
         cmd = commands.ExecProbe(self.app, None)
@@ -191,14 +278,18 @@ class TestDebugCommands(unittest.TestCase):
         parsed_args = cmd_parser.parse_args(args)
         cmd.run(parsed_args)
         namespace = 'qprobe-fake_port'
-        self.client.assert_has_calls([mock.call.list_ports(
-                                      device_id=socket.gethostname(),
-                                      device_owner=DEVICE_OWNER_PROBE),
-                                      mock.call.show_port('fake_port'),
-                                      mock.call.delete_port('fake_port')])
+        self.client.assert_has_calls(
+            [mock.call.list_ports(device_id=socket.gethostname(),
+                                  device_owner=[DEVICE_OWNER_NETWORK_PROBE,
+                                                DEVICE_OWNER_COMPUTE_PROBE]),
+             mock.call.show_port('fake_port'),
+             mock.call.show_network('fake_net'),
+             mock.call.show_subnet('fake_subnet'),
+             mock.call.delete_port('fake_port')])
         self.driver.assert_has_calls([mock.call.get_device_name(mock.ANY),
                                       mock.call.unplug('tap12345678-12',
-                                                       namespace=namespace)])
+                                                       namespace=namespace,
+                                                       bridge=None)])
 
     def test_ping_all_with_ensure_port(self):
         fake_ports = self.fake_ports
@@ -218,7 +309,7 @@ class TestDebugCommands(unittest.TestCase):
             cmd.run(parsed_args)
             ns.assert_has_calls([mock.call.execute(mock.ANY)])
         fake_port = {'port':
-                    {'device_owner': DEVICE_OWNER_PROBE,
+                    {'device_owner': DEVICE_OWNER_NETWORK_PROBE,
                      'admin_state_up': True,
                      'network_id': 'fake_net',
                      'tenant_id': 'fake_tenant',
@@ -243,16 +334,17 @@ class TestDebugCommands(unittest.TestCase):
             cmd.run(parsed_args)
             ns.assert_has_calls([mock.call.execute(mock.ANY)])
         fake_port = {'port':
-                    {'device_owner': DEVICE_OWNER_PROBE,
+                    {'device_owner': DEVICE_OWNER_NETWORK_PROBE,
                      'admin_state_up': True,
                      'network_id': 'fake_net',
                      'tenant_id': 'fake_tenant',
                      'fixed_ips': [{'subnet_id': 'fake_subnet'}],
                      'device_id': socket.gethostname()}}
         expected = [mock.call.list_ports(),
-                    mock.call.list_ports(network_id='fake_net',
-                                         device_owner=DEVICE_OWNER_PROBE,
-                                         device_id=socket.gethostname()),
+                    mock.call.list_ports(
+                        network_id='fake_net',
+                        device_owner=DEVICE_OWNER_NETWORK_PROBE,
+                        device_id=socket.gethostname()),
                     mock.call.show_subnet('fake_subnet'),
                     mock.call.show_port('fake_port')]
         self.client.assert_has_calls(expected)

@@ -30,6 +30,19 @@ Imports
 -------
 - Do not make relative imports
 - Order your imports by the full module path
+
+Example::
+
+  The following imports,
+
+  from quantum.api import networks
+  from quantum import wsgi
+
+  are considered equivalent for ordering purposes to
+
+  import quantum.api.networks
+  import quantum.wsgi
+
 - Organize your imports according to the following template
 
 Example::
@@ -50,19 +63,19 @@ Human Alphabetical Order Examples
 Example::
 
   import httplib
-  import logging
   import random
   import StringIO
   import time
-  import unittest
 
   import eventlet
+  import testtools
   import webob.exc
 
   import quantum.api.networks
   from quantum.api import ports
   from quantum.db import models
   from quantum.extensions import multiport
+  from quantum.openstack.common import log as logging
   import quantum.manager
   from quantum import service
 
@@ -185,6 +198,15 @@ For every new feature, unit tests should be created that both test and
 bug that had no unit test, a new passing unit test should be added. If a
 submitted bug fix does have a unit test, be sure to add a new one that fails
 without the patch and passes with the patch.
+
+All unittest classes must ultimately inherit from testtools.TestCase. In the
+Quantum test suite, this should be done by inheriting from
+quantum.tests.base.BaseTestCase.
+
+All setUp and tearDown methods must upcall using the super() method.
+tearDown methods should be avoided and addCleanup calls should be preferred.
+Never manually create tempfiles. Always use the tempfile fixtures from
+the fixture library to ensure that they are cleaned up.
 
 
 openstack-common

@@ -1,5 +1,5 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
+
 # Copyright 2012 NEC Corporation.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -15,13 +15,12 @@
 #    under the License.
 # @author: Ryota MIBU
 
-import logging
-
 from sqlalchemy.orm import exc
 
 from quantum.api.v2 import attributes
-from quantum.common import utils
 from quantum.db import db_base_plugin_v2
+from quantum.openstack.common import log as logging
+from quantum.openstack.common import uuidutils
 from quantum.plugins.nec.common import exceptions as q_exc
 from quantum.plugins.nec.db import models as nmodels
 
@@ -58,7 +57,7 @@ class NECPluginV2Base(db_base_plugin_v2.QuantumDbPluginV2):
         except exc.NoResultFound:
             raise q_exc.PacketFilterNotFound(id=id)
         except exc.MultipleResultsFound:
-            LOG.error('Multiple packet_filters match for %s' % id)
+            LOG.error(_('Multiple packet_filters match for %s'), id)
             raise q_exc.PacketFilterNotFound(id=id)
         return packet_filter
 
@@ -79,12 +78,12 @@ class NECPluginV2Base(db_base_plugin_v2.QuantumDbPluginV2):
 
         # validate network ownership
         super(NECPluginV2Base, self).get_network(context, pf['network_id'])
-        if pf.get('in_port') != attributes.ATTR_NOT_SPECIFIED:
+        if pf.get('in_port') is not attributes.ATTR_NOT_SPECIFIED:
             # validate port ownership
             super(NECPluginV2Base, self).get_port(context, pf['in_port'])
 
         params = {'tenant_id': tenant_id,
-                  'id': pf.get('id') or utils.str_uuid(),
+                  'id': pf.get('id') or uuidutils.generate_uuid(),
                   'network_id': pf['network_id'],
                   'priority': pf['priority'],
                   'action': pf['action'],
@@ -100,24 +99,24 @@ class NECPluginV2Base(db_base_plugin_v2.QuantumDbPluginV2):
                       'dst_port': 0,
                       'protocol': ''}
         for key, default in conditions.items():
-            if pf.get(key) == attributes.ATTR_NOT_SPECIFIED:
+            if pf.get(key) is attributes.ATTR_NOT_SPECIFIED:
                 params.update({key: default})
             else:
                 params.update({key: pf.get(key)})
 
-        with context.session.begin():
+        with context.session.begin(subtransactions=True):
             pf_entry = nmodels.PacketFilter(**params)
             context.session.add(pf_entry)
         return self._make_packet_filter_dict(pf_entry)
 
     def update_packet_filter(self, context, id, packet_filter):
         pf = packet_filter['packet_filter']
-        with context.session.begin():
+        with context.session.begin(subtransactions=True):
             pf_entry = self._get_packet_filter(context, id)
             pf_entry.update(pf)
         return self._make_packet_filter_dict(pf_entry)
 
     def delete_packet_filter(self, context, id):
-        with context.session.begin():
+        with context.session.begin(subtransactions=True):
             packet_filter = self._get_packet_filter(context, id)
             context.session.delete(packet_filter)

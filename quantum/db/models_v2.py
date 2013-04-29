@@ -1,23 +1,25 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright (c) 2012 OpenStack Foundation.
+# All Rights Reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
 
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from quantum.common import utils
 from quantum.db import model_base
+from quantum.openstack.common import uuidutils
 
 
 class HasTenant(object):
@@ -28,7 +30,9 @@ class HasTenant(object):
 
 class HasId(object):
     """id mixin, add to subclasses that have an id."""
-    id = sa.Column(sa.String(36), primary_key=True, default=utils.str_uuid)
+    id = sa.Column(sa.String(36),
+                   primary_key=True,
+                   default=uuidutils.generate_uuid)
 
 
 class IPAvailabilityRange(model_base.BASEV2):
@@ -46,7 +50,7 @@ class IPAvailabilityRange(model_base.BASEV2):
     allocation_pool_id = sa.Column(sa.String(36),
                                    sa.ForeignKey('ipallocationpools.id',
                                                  ondelete="CASCADE"),
-                                   nullable=True,
+                                   nullable=False,
                                    primary_key=True)
     first_ip = sa.Column(sa.String(64), nullable=False, primary_key=True)
     last_ip = sa.Column(sa.String(64), nullable=False, primary_key=True)
@@ -65,7 +69,8 @@ class IPAllocationPool(model_base.BASEV2, HasId):
     last_ip = sa.Column(sa.String(64), nullable=False)
     available_ranges = orm.relationship(IPAvailabilityRange,
                                         backref='ipallocationpool',
-                                        lazy="dynamic")
+                                        lazy="dynamic",
+                                        cascade='delete')
 
     def __repr__(self):
         return "%s - %s" % (self.first_ip, self.last_ip)
@@ -85,6 +90,19 @@ class IPAllocation(model_base.BASEV2):
                                                         ondelete="CASCADE"),
                            nullable=False, primary_key=True)
     expiration = sa.Column(sa.DateTime, nullable=True)
+
+
+class Route(object):
+    """mixin of a route."""
+    destination = sa.Column(sa.String(64), nullable=False, primary_key=True)
+    nexthop = sa.Column(sa.String(64), nullable=False, primary_key=True)
+
+
+class SubnetRoute(model_base.BASEV2, Route):
+    subnet_id = sa.Column(sa.String(36),
+                          sa.ForeignKey('subnets.id',
+                                        ondelete="CASCADE"),
+                          primary_key=True)
 
 
 class Port(model_base.BASEV2, HasId, HasTenant):
@@ -109,16 +127,6 @@ class DNSNameServer(model_base.BASEV2):
                           primary_key=True)
 
 
-class Route(model_base.BASEV2):
-    """Represents a route for a subnet or port."""
-    destination = sa.Column(sa.String(64), nullable=False, primary_key=True)
-    nexthop = sa.Column(sa.String(64), nullable=False, primary_key=True)
-    subnet_id = sa.Column(sa.String(36),
-                          sa.ForeignKey('subnets.id',
-                                        ondelete="CASCADE"),
-                          primary_key=True)
-
-
 class Subnet(model_base.BASEV2, HasId, HasTenant):
     """Represents a quantum subnet.
 
@@ -132,14 +140,15 @@ class Subnet(model_base.BASEV2, HasId, HasTenant):
     gateway_ip = sa.Column(sa.String(64))
     allocation_pools = orm.relationship(IPAllocationPool,
                                         backref='subnet',
-                                        lazy="dynamic")
+                                        lazy="dynamic",
+                                        cascade='delete')
     enable_dhcp = sa.Column(sa.Boolean())
     dns_nameservers = orm.relationship(DNSNameServer,
                                        backref='subnet',
-                                       cascade='delete')
-    routes = orm.relationship(Route,
+                                       cascade='all, delete, delete-orphan')
+    routes = orm.relationship(SubnetRoute,
                               backref='subnet',
-                              cascade='delete')
+                              cascade='all, delete, delete-orphan')
     shared = sa.Column(sa.Boolean)
 
 

@@ -1,5 +1,5 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
+
 # Copyright 2012, Nachi Ueno, NTT MCL, Inc.
 # All Rights Reserved.
 #
@@ -16,24 +16,21 @@
 #    under the License.
 
 import os
-import uuid
 
 import mock
 import mox
+from oslo.config import cfg
 import stubout
-import unittest2 as unittest
+import testtools
 
-from quantum.common import config
-from quantum.common.exceptions import NotImplementedError
+from quantum import context
 from quantum.db import api as db
 from quantum.db import models_v2
 from quantum.extensions.flavor import (FLAVOR_NETWORK, FLAVOR_ROUTER)
-from quantum.extensions import l3
-from quantum.openstack.common import cfg
+from quantum.openstack.common import uuidutils
+from quantum.plugins.metaplugin.meta_quantum_plugin import FlavorNotFound
 from quantum.plugins.metaplugin.meta_quantum_plugin import MetaPluginV2
-from quantum.plugins.metaplugin.proxy_quantum_plugin import ProxyPluginV2
-from quantum.tests.unit.metaplugin import fake_plugin
-from quantum import context
+from quantum.tests import base
 
 CONF_FILE = ""
 ROOTDIR = os.path.dirname(os.path.dirname(__file__))
@@ -66,23 +63,22 @@ def setup_metaplugin_conf():
     cfg.CONF.set_override('default_l3_flavor', 'fake1', 'META')
     cfg.CONF.set_override('base_mac', "12:34:56:78:90:ab")
     #TODO(nati) remove this after subnet quota change is merged
-    cfg.CONF.max_dns_nameservers = 10
+    cfg.CONF.set_override('max_dns_nameservers', 10)
+    cfg.CONF.set_override('rpc_backend',
+                          'quantum.openstack.common.rpc.impl_fake')
 
 
-class MetaQuantumPluginV2Test(unittest.TestCase):
+class MetaQuantumPluginV2Test(base.BaseTestCase):
     """Class conisting of MetaQuantumPluginV2 unit tests"""
 
     def setUp(self):
         super(MetaQuantumPluginV2Test, self).setUp()
         db._ENGINE = None
         db._MAKER = None
-        self.fake_tenant_id = str(uuid.uuid4())
+        self.fake_tenant_id = uuidutils.generate_uuid()
         self.context = context.get_admin_context()
 
-        sql_connection = 'sqlite:///:memory:'
-        options = {"sql_connection": sql_connection}
-        options.update({'base': models_v2.model_base.BASEV2})
-        db.configure_db(options)
+        db.configure_db()
 
         setup_metaplugin_conf()
 
@@ -227,6 +223,8 @@ class MetaQuantumPluginV2Test(unittest.TestCase):
         self.plugin.delete_network(self.context, network_ret3['id'])
 
     def test_create_delete_subnet(self):
+        # for this test we need to enable overlapping ips
+        cfg.CONF.set_default('allow_overlapping_ips', True)
         network1 = self._fake_network('fake1')
         network_ret1 = self.plugin.create_network(self.context, network1)
         network2 = self._fake_network('fake2')
@@ -292,7 +290,7 @@ class MetaQuantumPluginV2Test(unittest.TestCase):
 
         self.plugin.delete_router(self.context, router_ret1['id'])
         self.plugin.delete_router(self.context, router_ret2['id'])
-        with self.assertRaises(l3.RouterNotFound):
+        with testtools.ExpectedException(FlavorNotFound):
             self.plugin.get_router(self.context, router_ret1['id'])
 
     def test_extension_method(self):
@@ -315,3 +313,4 @@ class MetaQuantumPluginV2Test(unittest.TestCase):
         self.stubs.SmartUnsetAll()
         self.mox.VerifyAll()
         db.clear_db()
+        super(MetaQuantumPluginV2Test, self).tearDown()

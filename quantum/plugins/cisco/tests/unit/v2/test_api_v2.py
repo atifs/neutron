@@ -1,28 +1,32 @@
-# Copyright 2012 OpenStack LLC.
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright (c) 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
-#  Licensed under the Apache License, Version 2.0 (the "License"); you may
-#  not use this file except in compliance with the License. You may obtain
-#  a copy of the License at
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
 #
-#       http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#  License for the spec
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
 
 import inspect
 import logging
-import mock
 import os
+
+import mock
+from oslo.config import cfg
 import webtest
 
+from quantum.api.extensions import PluginAwareExtensionManager
 from quantum.api.v2 import router
 from quantum.common import config
-from quantum.extensions.extensions import PluginAwareExtensionManager
 from quantum.manager import QuantumManager
-from quantum.openstack.common import cfg
 from quantum.tests.unit import test_api_v2
 
 
@@ -36,6 +40,7 @@ def curdir(*p):
 class APIv2TestCase(test_api_v2.APIv2TestCase):
 
     def setUp(self):
+        super(APIv2TestCase, self).setUp()
         plugin = 'quantum.plugins.cisco.network_plugin.PluginV2'
         # Ensure 'stale' patched copies of the plugin are never returned
         QuantumManager._instance = None

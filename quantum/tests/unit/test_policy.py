@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,99 +16,80 @@
 """Test of Policy Engine For Quantum"""
 
 import contextlib
-import os.path
+import os
 import shutil
 import StringIO
-import tempfile
-import unittest2 as unittest
 import urllib2
 
+import fixtures
 import mock
 
 import quantum
 from quantum.common import exceptions
-from quantum.common import utils
 from quantum import context
-from quantum.openstack.common import cfg
 from quantum.openstack.common import importutils
 from quantum.openstack.common import policy as common_policy
 from quantum import policy
+from quantum.tests import base
 
 
-class PolicyFileTestCase(unittest.TestCase):
+class PolicyFileTestCase(base.BaseTestCase):
     def setUp(self):
         super(PolicyFileTestCase, self).setUp()
         policy.reset()
+        self.addCleanup(policy.reset)
         self.context = context.Context('fake', 'fake')
         self.target = {}
-
-    def tearDown(self):
-        super(PolicyFileTestCase, self).tearDown()
-        policy.reset()
-
-    @contextlib.contextmanager
-    def _tempdir(self, **kwargs):
-        tmpdir = tempfile.mkdtemp(**kwargs)
-        try:
-            yield tmpdir
-        finally:
-            try:
-                shutil.rmtree(tmpdir)
-            except OSError, e:
-                #TODO: fail test on raise
-                pass
+        self.tempdir = self.useFixture(fixtures.TempDir())
 
     def test_modified_policy_reloads(self):
-        with self._tempdir() as tmpdir:
-            def fake_find_config_file(_1, _2):
-                return os.path.join(tmpdir, 'policy')
+        def fake_find_config_file(_1, _2):
+            return self.tempdir.join('policy')
 
-            with mock.patch.object(quantum.common.utils,
-                                   'find_config_file',
-                                   new=fake_find_config_file):
-                tmpfilename = os.path.join(tmpdir, 'policy')
-                action = "example:test"
-                with open(tmpfilename, "w") as policyfile:
-                    policyfile.write("""{"example:test": []}""")
-                policy.enforce(self.context, action, self.target)
-                with open(tmpfilename, "w") as policyfile:
-                    policyfile.write("""{"example:test": ["false:false"]}""")
-                # NOTE(vish): reset stored policy cache so we don't have to
-                # sleep(1)
-                policy._POLICY_CACHE = {}
-                self.assertRaises(exceptions.PolicyNotAuthorized,
-                                  policy.enforce,
-                                  self.context,
-                                  action,
-                                  self.target)
+        with mock.patch.object(quantum.common.utils,
+                               'find_config_file',
+                               new=fake_find_config_file):
+            tmpfilename = fake_find_config_file(None, None)
+            action = "example:test"
+            with open(tmpfilename, "w") as policyfile:
+                policyfile.write("""{"example:test": ""}""")
+            policy.enforce(self.context, action, self.target)
+            with open(tmpfilename, "w") as policyfile:
+                policyfile.write("""{"example:test": "!"}""")
+            # NOTE(vish): reset stored policy cache so we don't have to
+            # sleep(1)
+            policy._POLICY_CACHE = {}
+            self.assertRaises(exceptions.PolicyNotAuthorized,
+                              policy.enforce,
+                              self.context,
+                              action,
+                              self.target)
 
 
-class PolicyTestCase(unittest.TestCase):
+class PolicyTestCase(base.BaseTestCase):
     def setUp(self):
         super(PolicyTestCase, self).setUp()
         policy.reset()
+        self.addCleanup(policy.reset)
         # NOTE(vish): preload rules to circumvent reloading from file
         policy.init()
         rules = {
-            "true": [],
-            "example:allowed": [],
-            "example:denied": [["false:false"]],
-            "example:get_http": [["http:http://www.example.com"]],
-            "example:my_file": [["role:compute_admin"],
-                                ["tenant_id:%(tenant_id)s"]],
-            "example:early_and_fail": [["false:false", "rule:true"]],
-            "example:early_or_success": [["rule:true"], ["false:false"]],
-            "example:lowercase_admin": [["role:admin"], ["role:sysadmin"]],
-            "example:uppercase_admin": [["role:ADMIN"], ["role:sysadmin"]],
+            "true": '@',
+            "example:allowed": '@',
+            "example:denied": '!',
+            "example:get_http": "http:http://www.example.com",
+            "example:my_file": "role:compute_admin or tenant_id:%(tenant_id)s",
+            "example:early_and_fail": "! and @",
+            "example:early_or_success": "@ or !",
+            "example:lowercase_admin": "role:admin or role:sysadmin",
+            "example:uppercase_admin": "role:ADMIN or role:sysadmin",
         }
-        # NOTE(vish): then overload underlying brain
-        common_policy.set_brain(common_policy.HttpBrain(rules))
+        # NOTE(vish): then overload underlying rules
+        common_policy.set_rules(common_policy.Rules(
+            dict((k, common_policy.parse_rule(v))
+                 for k, v in rules.items())))
         self.context = context.Context('fake', 'fake', roles=['member'])
         self.target = {}
-
-    def tearDown(self):
-        policy.reset()
-        super(PolicyTestCase, self).tearDown()
 
     def test_enforce_nonexistent_action_throws(self):
         action = "example:noexist"
@@ -120,9 +101,15 @@ class PolicyTestCase(unittest.TestCase):
         self.assertRaises(exceptions.PolicyNotAuthorized, policy.enforce,
                           self.context, action, self.target)
 
+    def test_check_bad_action_noraise(self):
+        action = "example:denied"
+        result = policy.check(self.context, action, self.target)
+        self.assertEqual(result, False)
+
     def test_enforce_good_action(self):
         action = "example:allowed"
-        policy.enforce(self.context, action, self.target)
+        result = policy.enforce(self.context, action, self.target)
+        self.assertEqual(result, True)
 
     def test_enforce_http_true(self):
 
@@ -133,7 +120,7 @@ class PolicyTestCase(unittest.TestCase):
             action = "example:get_http"
             target = {}
             result = policy.enforce(self.context, action, target)
-            self.assertEqual(result, None)
+            self.assertEqual(result, True)
 
     def test_enforce_http_false(self):
 
@@ -173,29 +160,28 @@ class PolicyTestCase(unittest.TestCase):
         policy.enforce(admin_context, uppercase_action, self.target)
 
 
-class DefaultPolicyTestCase(unittest.TestCase):
+class DefaultPolicyTestCase(base.BaseTestCase):
 
     def setUp(self):
         super(DefaultPolicyTestCase, self).setUp()
         policy.reset()
         policy.init()
+        self.addCleanup(policy.reset)
 
         self.rules = {
-            "default": [],
-            "example:exist": [["false:false"]]
+            "default": '',
+            "example:exist": '!',
         }
 
-        self._set_brain('default')
+        self._set_rules('default')
 
         self.context = context.Context('fake', 'fake')
 
-    def _set_brain(self, default_rule):
-        brain = common_policy.HttpBrain(self.rules, default_rule)
-        common_policy.set_brain(brain)
-
-    def tearDown(self):
-        super(DefaultPolicyTestCase, self).tearDown()
-        policy.reset()
+    def _set_rules(self, default_rule):
+        rules = common_policy.Rules(
+            dict((k, common_policy.parse_rule(v))
+                 for k, v in self.rules.items()), default_rule)
+        common_policy.set_rules(rules)
 
     def test_policy_called(self):
         self.assertRaises(exceptions.PolicyNotAuthorized, policy.enforce,
@@ -205,53 +191,51 @@ class DefaultPolicyTestCase(unittest.TestCase):
         policy.enforce(self.context, "example:noexist", {})
 
     def test_default_not_found(self):
-        self._set_brain("default_noexist")
+        self._set_rules("default_noexist")
         self.assertRaises(exceptions.PolicyNotAuthorized, policy.enforce,
                           self.context, "example:noexist", {})
 
 
-class QuantumPolicyTestCase(unittest.TestCase):
+class QuantumPolicyTestCase(base.BaseTestCase):
 
     def setUp(self):
         super(QuantumPolicyTestCase, self).setUp()
         policy.reset()
         policy.init()
-        self.rules = {
-            "admin_or_network_owner": [["role:admin"],
-                                       ["tenant_id:%(network_tenant_id)s"]],
-            "admin_or_owner": [["role:admin"], ["tenant_id:%(tenant_id)s"]],
-            "admin_only": [["role:admin"]],
-            "regular_user": [["role:user"]],
-            "shared": [["field:networks:shared=True"]],
-            "external": [["field:networks:router:external=True"]],
-            "default": [],
+        self.addCleanup(policy.reset)
+        self.rules = dict((k, common_policy.parse_rule(v)) for k, v in {
+            "admin_or_network_owner": "role:admin or "
+                                      "tenant_id:%(network_tenant_id)s",
+            "admin_or_owner": "role:admin or tenant_id:%(tenant_id)s",
+            "admin_only": "role:admin",
+            "regular_user": "role:user",
+            "shared": "field:networks:shared=True",
+            "external": "field:networks:router:external=True",
+            "default": '@',
 
-            "create_network": [["rule:admin_or_owner"]],
-            "create_network:shared": [["rule:admin_only"]],
-            "update_network": [],
-            "update_network:shared": [["rule:admin_only"]],
+            "create_network": "rule:admin_or_owner",
+            "create_network:shared": "rule:admin_only",
+            "update_network": '@',
+            "update_network:shared": "rule:admin_only",
 
-            "get_network": [["rule:admin_or_owner"],
-                            ["rule:shared"],
-                            ["rule:external"]],
-            "create_port:mac": [["rule:admin_or_network_owner"]],
-        }
+            "get_network": "rule:admin_or_owner or "
+                           "rule:shared or "
+                           "rule:external",
+            "create_port:mac": "rule:admin_or_network_owner",
+        }.items())
 
         def fakepolicyinit():
-            common_policy.set_brain(common_policy.Brain(self.rules))
+            common_policy.set_rules(common_policy.Rules(self.rules))
 
         self.patcher = mock.patch.object(quantum.policy,
                                          'init',
                                          new=fakepolicyinit)
         self.patcher.start()
+        self.addCleanup(self.patcher.stop)
         self.context = context.Context('fake', 'fake', roles=['user'])
         plugin_klass = importutils.import_class(
             "quantum.db.db_base_plugin_v2.QuantumDbPluginV2")
         self.plugin = plugin_klass()
-
-    def tearDown(self):
-        self.patcher.stop()
-        policy.reset()
 
     def _test_action_on_attr(self, context, action, attr, value,
                              exception=None):
@@ -262,7 +246,7 @@ class QuantumPolicyTestCase(unittest.TestCase):
                               context, action, target, None)
         else:
             result = policy.enforce(context, action, target, None)
-            self.assertEqual(result, None)
+            self.assertEqual(result, True)
 
     def _test_nonadmin_action_on_attr(self, action, attr, value,
                                       exception=None):
@@ -289,7 +273,7 @@ class QuantumPolicyTestCase(unittest.TestCase):
         admin_context = context.get_admin_context()
         target = {'shared': True}
         result = policy.enforce(admin_context, action, target, None)
-        self.assertEqual(result, None)
+        self.assertEqual(result, True)
 
     def test_enforce_adminonly_attribute_create(self):
         self._test_enforce_adminonly_attribute('create_network')
@@ -297,7 +281,7 @@ class QuantumPolicyTestCase(unittest.TestCase):
     def test_enforce_adminonly_attribute_update(self):
         self._test_enforce_adminonly_attribute('update_network')
 
-    def test_enforce_adminoly_attribute_nonadminctx_returns_403(self):
+    def test_enforce_adminonly_attribute_nonadminctx_returns_403(self):
         action = "create_network"
         target = {'shared': True, 'tenant_id': 'somebody_else'}
         self.assertRaises(exceptions.PolicyNotAuthorized, policy.enforce,
@@ -307,7 +291,7 @@ class QuantumPolicyTestCase(unittest.TestCase):
         action = "get_network"
         target = {'shared': True, 'tenant_id': 'somebody_else'}
         result = policy.enforce(self.context, action, target, None)
-        self.assertIsNone(result)
+        self.assertTrue(result)
 
     def test_enforce_parentresource_owner(self):
 
@@ -318,4 +302,4 @@ class QuantumPolicyTestCase(unittest.TestCase):
         with mock.patch.object(self.plugin, 'get_network', new=fakegetnetwork):
             target = {'network_id': 'whatever'}
             result = policy.enforce(self.context, action, target, self.plugin)
-            self.assertIsNone(result)
+            self.assertTrue(result)

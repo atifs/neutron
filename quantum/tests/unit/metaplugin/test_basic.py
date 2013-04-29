@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 # limitations under the License.
 
 from quantum.common.test_lib import test_config
+from quantum.tests.unit.metaplugin.test_metaplugin import setup_metaplugin_conf
 from quantum.tests.unit import test_db_plugin as test_plugin
 from quantum.tests.unit import test_l3_plugin
-from quantum.tests.unit.metaplugin.test_metaplugin import setup_metaplugin_conf
 
 
 class MetaPluginV2DBTestCase(test_plugin.QuantumDbPluginV2TestCase):
@@ -55,6 +55,12 @@ class TestMetaSubnetsV2(test_plugin.TestSubnetsV2,
                         MetaPluginV2DBTestCase):
     #TODO(nati) This test fails if we run all test, but It success just one
     def test_update_subnet_route(self):
+        pass
+
+    def test_update_subnet_dns_to_None(self):
+        pass
+
+    def test_update_subnet_route_to_None(self):
         pass
 
     def test_update_subnet_dns(self):

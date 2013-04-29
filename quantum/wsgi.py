@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,36 +18,24 @@
 """
 Utility methods for working with WSGI servers
 """
-
-import logging
+import socket
 import sys
-from xml.dom import minidom
+from xml.etree import ElementTree as etree
 from xml.parsers import expat
 
 import eventlet.wsgi
 eventlet.patcher.monkey_patch(all=False, socket=True)
-from lxml import etree
 import routes.middleware
 import webob.dec
 import webob.exc
 
+from quantum.common import constants
 from quantum.common import exceptions as exception
 from quantum import context
 from quantum.openstack.common import jsonutils
-
+from quantum.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
-
-
-class WritableLogger(object):
-    """A thin wrapper that responds to `write` and logs."""
-
-    def __init__(self, logger, level=logging.DEBUG):
-        self.logger = logger
-        self.level = level
-
-    def write(self, msg):
-        self.logger.log(self.level, msg.strip("\n"))
 
 
 def run_server(application, port):
@@ -65,8 +53,40 @@ class Server(object):
 
     def start(self, application, port, host='0.0.0.0', backlog=128):
         """Run a WSGI server with the given application."""
-        socket = eventlet.listen((host, port), backlog=backlog)
-        self.pool.spawn_n(self._run, application, socket)
+        self._host = host
+        self._port = port
+
+        # TODO(dims): eventlet's green dns/socket module does not actually
+        # support IPv6 in getaddrinfo(). We need to get around this in the
+        # future or monitor upstream for a fix
+        try:
+            info = socket.getaddrinfo(self._host,
+                                      self._port,
+                                      socket.AF_UNSPEC,
+                                      socket.SOCK_STREAM)[0]
+            family = info[0]
+            bind_addr = info[-1]
+
+            self._socket = eventlet.listen(bind_addr,
+                                           family=family,
+                                           backlog=backlog)
+        except:
+            LOG.exception(_("Unable to listen on %(host)s:%(port)s") %
+                          {'host': host, 'port': port})
+            sys.exit(1)
+
+        self._server = self.pool.spawn(self._run, application, self._socket)
+
+    @property
+    def host(self):
+        return self._socket.getsockname()[0] if self._socket else self._host
+
+    @property
+    def port(self):
+        return self._socket.getsockname()[1] if self._socket else self._port
+
+    def stop(self):
+        self._server.kill()
 
     def wait(self):
         """Wait until all servers have completed running."""
@@ -79,7 +99,7 @@ class Server(object):
         """Start a WSGI server in a new green thread."""
         logger = logging.getLogger('eventlet.wsgi.server')
         eventlet.wsgi.server(socket, application, custom_pool=self.pool,
-                             log=WritableLogger(logger))
+                             log=logging.WritableLogger(logger))
 
 
 class Middleware(object):
@@ -154,12 +174,12 @@ class Request(webob.Request):
             2) Content-type header
             3) Accept* headers
         """
-        # First lookup http request
+        # First lookup http request path
         parts = self.path.rsplit('.', 1)
         if len(parts) > 1:
-            format = parts[1]
-            if format in ['json', 'xml']:
-                return 'application/{0}'.format(parts[1])
+            _format = parts[1]
+            if _format in ['json', 'xml']:
+                return 'application/{0}'.format(_format)
 
         #Then look up content header
         type_from_header = self.get_content_type()
@@ -173,12 +193,12 @@ class Request(webob.Request):
 
     def get_content_type(self):
         allowed_types = ("application/xml", "application/json")
-        if not "Content-Type" in self.headers:
+        if "Content-Type" not in self.headers:
             LOG.debug(_("Missing Content-Type"))
             return None
-        type = self.content_type
-        if type in allowed_types:
-            return type
+        _type = self.content_type
+        if _type in allowed_types:
+            return _type
         return None
 
     @property
@@ -215,7 +235,9 @@ class JSONDictSerializer(DictSerializer):
     """Default JSON request body serialization"""
 
     def default(self, data):
-        return jsonutils.dumps(data)
+        def sanitizer(obj):
+            return unicode(obj)
+        return jsonutils.dumps(data, default=sanitizer)
 
 
 class XMLDictSerializer(DictSerializer):
@@ -228,15 +250,43 @@ class XMLDictSerializer(DictSerializer):
         """
         super(XMLDictSerializer, self).__init__()
         self.metadata = metadata or {}
+        if not xmlns:
+            xmlns = self.metadata.get('xmlns')
+        if not xmlns:
+            xmlns = constants.XML_NS_V20
         self.xmlns = xmlns
 
     def default(self, data):
-        # We expect data to contain a single key which is the XML root.
-        root_key = data.keys()[0]
-        doc = minidom.Document()
-        node = self._to_xml_node(doc, self.metadata, root_key, data[root_key])
-
-        return self.to_xml_string(node)
+        """
+        :param data: expect data to contain a single key as XML root, or
+                     contain another '*_links' key as atom links. Other
+                     case will use 'VIRTUAL_ROOT_KEY' as XML root.
+        """
+        try:
+            links = None
+            has_atom = False
+            if data is None:
+                root_key = constants.VIRTUAL_ROOT_KEY
+                root_value = None
+            else:
+                link_keys = [k for k in data.iterkeys() or []
+                             if k.endswith('_links')]
+                if link_keys:
+                    links = data.pop(link_keys[0], None)
+                    has_atom = True
+                root_key = (len(data) == 1 and
+                            data.keys()[0] or constants.VIRTUAL_ROOT_KEY)
+                root_value = data.get(root_key, data)
+            doc = etree.Element("_temp_root")
+            used_prefixes = []
+            self._to_xml_node(doc, self.metadata, root_key,
+                              root_value, used_prefixes)
+            if links:
+                self._create_link_nodes(list(doc)[0], links)
+            return self.to_xml_string(list(doc)[0], used_prefixes, has_atom)
+        except AttributeError as e:
+            LOG.exception(str(e))
+            return ''
 
     def __call__(self, data):
         # Provides a migration path to a cleaner WSGI layer, this
@@ -244,39 +294,36 @@ class XMLDictSerializer(DictSerializer):
         # like originally intended
         return self.default(data)
 
-    def to_xml_string(self, node, has_atom=False):
-        self._add_xmlns(node, has_atom)
-        return node.toxml('UTF-8')
+    def to_xml_string(self, node, used_prefixes, has_atom=False):
+        self._add_xmlns(node, used_prefixes, has_atom)
+        return etree.tostring(node, encoding='UTF-8')
 
     #NOTE (ameade): the has_atom should be removed after all of the
     # xml serializers and view builders have been updated to the current
     # spec that required all responses include the xmlns:atom, the has_atom
     # flag is to prevent current tests from breaking
-    def _add_xmlns(self, node, has_atom=False):
-        if self.xmlns is not None:
-            node.setAttribute('xmlns', self.xmlns)
+    def _add_xmlns(self, node, used_prefixes, has_atom=False):
+        node.set('xmlns', self.xmlns)
+        node.set(constants.TYPE_XMLNS, self.xmlns)
         if has_atom:
-            node.setAttribute('xmlns:atom', "http://www.w3.org/2005/Atom")
+            node.set(constants.ATOM_XMLNS, constants.ATOM_NAMESPACE)
+        node.set(constants.XSI_NIL_ATTR, constants.XSI_NAMESPACE)
+        ext_ns = self.metadata.get(constants.EXT_NS, {})
+        for prefix in used_prefixes:
+            if prefix in ext_ns:
+                node.set('xmlns:' + prefix, ext_ns[prefix])
 
-    def _to_xml_node(self, doc, metadata, nodename, data):
+    def _to_xml_node(self, parent, metadata, nodename, data, used_prefixes):
         """Recursive method to convert data members to XML nodes."""
-        result = doc.createElement(nodename)
-
-        # Set the xml namespace if one is specified
-        # TODO(justinsb): We could also use prefixes on the keys
-        xmlns = metadata.get('xmlns', None)
-        if xmlns:
-            result.setAttribute('xmlns', xmlns)
-
+        result = etree.SubElement(parent, nodename)
+        if ":" in nodename:
+            used_prefixes.append(nodename.split(":", 1)[0])
         #TODO(bcwaldon): accomplish this without a type-check
         if isinstance(data, list):
-            collections = metadata.get('list_collections', {})
-            if nodename in collections:
-                metadata = collections[nodename]
-                for item in data:
-                    node = doc.createElement(metadata['item_name'])
-                    node.setAttribute(metadata['item_key'], str(item))
-                    result.appendChild(node)
+            if not data:
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_LIST)
                 return result
             singular = metadata.get('plurals', {}).get(nodename, None)
             if singular is None:
@@ -285,48 +332,55 @@ class XMLDictSerializer(DictSerializer):
                 else:
                     singular = 'item'
             for item in data:
-                node = self._to_xml_node(doc, metadata, singular, item)
-                result.appendChild(node)
+                self._to_xml_node(result, metadata, singular, item,
+                                  used_prefixes)
         #TODO(bcwaldon): accomplish this without a type-check
         elif isinstance(data, dict):
-            collections = metadata.get('dict_collections', {})
-            if nodename in collections:
-                metadata = collections[nodename]
-                for k, v in data.items():
-                    node = doc.createElement(metadata['item_name'])
-                    node.setAttribute(metadata['item_key'], str(k))
-                    text = doc.createTextNode(str(v))
-                    node.appendChild(text)
-                    result.appendChild(node)
+            if not data:
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_DICT)
                 return result
             attrs = metadata.get('attributes', {}).get(nodename, {})
             for k, v in data.items():
                 if k in attrs:
-                    result.setAttribute(k, str(v))
+                    result.set(k, str(v))
                 else:
-                    node = self._to_xml_node(doc, metadata, k, v)
-                    result.appendChild(node)
+                    self._to_xml_node(result, metadata, k, v,
+                                      used_prefixes)
+        elif data is None:
+            result.set(constants.XSI_ATTR, 'true')
         else:
-            # Type is atom
-            node = doc.createTextNode(str(data))
-            result.appendChild(node)
+            if isinstance(data, bool):
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_BOOL)
+            elif isinstance(data, int):
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_INT)
+            elif isinstance(data, long):
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_LONG)
+            elif isinstance(data, float):
+                result.set(
+                    constants.TYPE_ATTR,
+                    constants.TYPE_FLOAT)
+            LOG.debug(_("Data %(data)s type is %(type)s"),
+                      {'data': data,
+                       'type': type(data)})
+            if isinstance(data, str):
+                result.text = unicode(data, 'utf-8')
+            else:
+                result.text = unicode(data)
         return result
 
     def _create_link_nodes(self, xml_doc, links):
-        link_nodes = []
         for link in links:
-            link_node = xml_doc.createElement('atom:link')
-            link_node.setAttribute('rel', link['rel'])
-            link_node.setAttribute('href', link['href'])
-            if 'type' in link:
-                link_node.setAttribute('type', link['type'])
-            link_nodes.append(link_node)
-        return link_nodes
-
-    def _to_xml(self, root):
-        """Convert the xml object to an xml string."""
-        # we use lxml here instead of xml.minidom for performance reasons
-        return etree.tostring(root, encoding='UTF-8', xml_declaration=True)
+            link_node = etree.SubElement(xml_doc, 'atom:link')
+            link_node.set('rel', link['rel'])
+            link_node.set('href', link['href'])
 
 
 class ResponseHeaderSerializer(ActionDispatcher):
@@ -396,11 +450,23 @@ class JSONDeserializer(TextDeserializer):
         try:
             return jsonutils.loads(datastring)
         except ValueError:
-            msg = _("cannot understand JSON")
+            msg = _("Cannot understand JSON")
             raise exception.MalformedRequestBody(reason=msg)
 
     def default(self, datastring):
         return {'body': self._from_json(datastring)}
+
+
+class ProtectedXMLParser(etree.XMLParser):
+    def __init__(self, *args, **kwargs):
+        etree.XMLParser.__init__(self, *args, **kwargs)
+        self._parser.StartDoctypeDeclHandler = self.start_doctype_decl
+
+    def start_doctype_decl(self, name, sysid, pubid, internal):
+        raise ValueError(_("Inline DTD forbidden"))
+
+    def doctype(self, name, pubid, system):
+        raise ValueError(_("Inline DTD forbidden"))
 
 
 class XMLDeserializer(TextDeserializer):
@@ -412,15 +478,73 @@ class XMLDeserializer(TextDeserializer):
         """
         super(XMLDeserializer, self).__init__()
         self.metadata = metadata or {}
+        xmlns = self.metadata.get('xmlns')
+        if not xmlns:
+            xmlns = constants.XML_NS_V20
+        self.xmlns = xmlns
+
+    def _get_key(self, tag):
+        tags = tag.split("}", 1)
+        if len(tags) == 2:
+            ns = tags[0][1:]
+            bare_tag = tags[1]
+            ext_ns = self.metadata.get(constants.EXT_NS, {})
+            if ns == self.xmlns:
+                return bare_tag
+            for prefix, _ns in ext_ns.items():
+                if ns == _ns:
+                    return prefix + ":" + bare_tag
+        else:
+            return tag
+
+    def _get_links(self, root_tag, node):
+        link_nodes = node.findall(constants.ATOM_LINK_NOTATION)
+        root_tag = self._get_key(node.tag)
+        link_key = "%s_links" % root_tag
+        link_list = []
+        for link in link_nodes:
+            link_list.append({'rel': link.get('rel'),
+                              'href': link.get('href')})
+            # Remove link node in order to avoid link node process as
+            # an item in _from_xml_node
+            node.remove(link)
+        return link_list and {link_key: link_list} or {}
+
+    def _parseXML(self, text):
+        parser = ProtectedXMLParser()
+        parser.feed(text)
+        return parser.close()
 
     def _from_xml(self, datastring):
+        if datastring is None:
+            return None
         plurals = set(self.metadata.get('plurals', {}))
         try:
-            node = minidom.parseString(datastring).childNodes[0]
-            return {node.nodeName: self._from_xml_node(node, plurals)}
-        except expat.ExpatError:
-            msg = _("cannot understand XML")
-            raise exception.MalformedRequestBody(reason=msg)
+            node = self._parseXML(datastring)
+            root_tag = self._get_key(node.tag)
+            # Deserialize link node was needed by unit test for verifying
+            # the request's response
+            links = self._get_links(root_tag, node)
+            result = self._from_xml_node(node, plurals)
+            # root_tag = constants.VIRTUAL_ROOT_KEY and links is not None
+            # is not possible because of the way data are serialized.
+            if root_tag == constants.VIRTUAL_ROOT_KEY:
+                return result
+            return dict({root_tag: result}, **links)
+        except Exception as e:
+            parseError = False
+            # Python2.7
+            if (hasattr(etree, 'ParseError') and
+                isinstance(e, getattr(etree, 'ParseError'))):
+                parseError = True
+            # Python2.6
+            elif isinstance(e, expat.ExpatError):
+                parseError = True
+            if parseError:
+                msg = _("Cannot understand XML")
+                raise exception.MalformedRequestBody(reason=msg)
+            else:
+                raise
 
     def _from_xml_node(self, node, listnames):
         """Convert a minidom node to a simple Python type.
@@ -429,40 +553,47 @@ class XMLDeserializer(TextDeserializer):
                           be considered list items.
 
         """
-        if len(node.childNodes) == 1 and node.childNodes[0].nodeType == 3:
-            return node.childNodes[0].nodeValue
-        elif node.nodeName in listnames:
-            return [self._from_xml_node(n, listnames) for n in node.childNodes]
+        attrNil = node.get(str(etree.QName(constants.XSI_NAMESPACE, "nil")))
+        attrType = node.get(str(etree.QName(
+            self.metadata.get('xmlns'), "type")))
+        if (attrNil and attrNil.lower() == 'true'):
+            return None
+        elif not len(node) and not node.text:
+            if (attrType and attrType == constants.TYPE_DICT):
+                return {}
+            elif (attrType and attrType == constants.TYPE_LIST):
+                return []
+            else:
+                return ''
+        elif (len(node) == 0 and node.text):
+            converters = {constants.TYPE_BOOL:
+                          lambda x: x.lower() == 'true',
+                          constants.TYPE_INT:
+                          lambda x: int(x),
+                          constants.TYPE_LONG:
+                          lambda x: long(x),
+                          constants.TYPE_FLOAT:
+                          lambda x: float(x)}
+            if attrType and attrType in converters:
+                return converters[attrType](node.text)
+            else:
+                return node.text
+        elif self._get_key(node.tag) in listnames:
+            return [self._from_xml_node(n, listnames) for n in node]
         else:
             result = dict()
-            for attr in node.attributes.keys():
-                result[attr] = node.attributes[attr].nodeValue
-            for child in node.childNodes:
-                if child.nodeType != node.TEXT_NODE:
-                    result[child.nodeName] = self._from_xml_node(child,
-                                                                 listnames)
+            for attr in node.keys():
+                if (attr == 'xmlns' or
+                    attr.startswith('xmlns:') or
+                    attr == constants.XSI_ATTR or
+                    attr == constants.TYPE_ATTR):
+                    continue
+                result[self._get_key(attr)] = node.get(attr)
+            children = list(node)
+            for child in children:
+                result[self._get_key(child.tag)] = self._from_xml_node(
+                    child, listnames)
             return result
-
-    def find_first_child_named(self, parent, name):
-        """Search a nodes children for the first child with a given name"""
-        for node in parent.childNodes:
-            if node.nodeName == name:
-                return node
-        return None
-
-    def find_children_named(self, parent, name):
-        """Return all of a nodes children who have the given name"""
-        for node in parent.childNodes:
-            if node.nodeName == name:
-                yield node
-
-    def extract_text(self, node):
-        """Get the text field contained by the given node"""
-        if len(node.childNodes) == 1:
-            child = node.childNodes[0]
-            if child.nodeType == child.TEXT_NODE:
-                return child.nodeValue
-        return ""
 
     def default(self, datastring):
         return {'body': self._from_xml(datastring)}
@@ -773,19 +904,19 @@ class Resource(Application):
     def __call__(self, request):
         """WSGI method that controls (de)serialization and method dispatch."""
 
-        LOG.info("%(method)s %(url)s" % {"method": request.method,
-                                         "url": request.url})
+        LOG.info(_("%(method)s %(url)s"), {"method": request.method,
+                                           "url": request.url})
 
         try:
             action, args, accept = self.deserializer.deserialize(request)
         except exception.InvalidContentType:
             msg = _("Unsupported Content-Type")
-            LOG.exception("InvalidContentType:%s", msg)
+            LOG.exception(_("InvalidContentType: %s"), msg)
             return Fault(webob.exc.HTTPBadRequest(explanation=msg),
                          self._xmlns)
         except exception.MalformedRequestBody:
             msg = _("Malformed request body")
-            LOG.exception("MalformedRequestBody:%s", msg)
+            LOG.exception(_("MalformedRequestBody: %s"), msg)
             return Fault(webob.exc.HTTPBadRequest(explanation=msg),
                          self._xmlns)
 
@@ -797,7 +928,7 @@ class Resource(Application):
                                   self._xmlns,
                                   self._fault_body_function)
         except Exception:
-            LOG.exception("Internal error")
+            LOG.exception(_("Internal error"))
             # Do not include the traceback to avoid returning it to clients.
             action_result = Fault(webob.exc.HTTPServerError(),
                                   self._xmlns,
@@ -814,8 +945,8 @@ class Resource(Application):
             msg_dict = dict(url=request.url, status=response.status_int)
             msg = _("%(url)s returned with HTTP %(status)d") % msg_dict
         except AttributeError, e:
-            msg_dict = dict(url=request.url, e=e)
-            msg = _("%(url)s returned a fault: %(e)s" % msg_dict)
+            msg_dict = dict(url=request.url, exception=e)
+            msg = _("%(url)s returned a fault: %(exception)s") % msg_dict
 
         LOG.info(msg)
 
@@ -946,7 +1077,7 @@ class Controller(object):
         """
         _metadata = getattr(type(self), '_serialization_metadata', {})
         serializer = Serializer(_metadata)
-        return serializer.deserialize(data, content_type)
+        return serializer.deserialize(data, content_type)['body']
 
     def get_default_xmlns(self, req):
         """Provide the XML namespace to use if none is otherwise specified."""
@@ -970,8 +1101,8 @@ class Serializer(object):
 
     def _get_serialize_handler(self, content_type):
         handlers = {
-            'application/json': self._to_json,
-            'application/xml': self._to_xml,
+            'application/json': JSONDictSerializer(),
+            'application/xml': XMLDictSerializer(self.metadata),
         }
 
         try:
@@ -981,7 +1112,7 @@ class Serializer(object):
 
     def serialize(self, data, content_type):
         """Serialize a dictionary into the specified content type."""
-        return self._get_serialize_handler(content_type)(data)
+        return self._get_serialize_handler(content_type).serialize(data)
 
     def deserialize(self, datastring, content_type):
         """Deserialize a string to a dictionary.
@@ -990,115 +1121,18 @@ class Serializer(object):
 
         """
         try:
-            return self.get_deserialize_handler(content_type)(datastring)
+            return self.get_deserialize_handler(content_type).deserialize(
+                datastring)
         except Exception:
-            raise webob.exc.HTTPBadRequest("Could not deserialize data")
+            raise webob.exc.HTTPBadRequest(_("Could not deserialize data"))
 
     def get_deserialize_handler(self, content_type):
         handlers = {
-            'application/json': self._from_json,
-            'application/xml': self._from_xml,
+            'application/json': JSONDeserializer(),
+            'application/xml': XMLDeserializer(self.metadata),
         }
 
         try:
             return handlers[content_type]
         except Exception:
             raise exception.InvalidContentType(content_type=content_type)
-
-    def _from_json(self, datastring):
-        return jsonutils.loads(datastring)
-
-    def _from_xml(self, datastring):
-        xmldata = self.metadata.get('application/xml', {})
-        plurals = set(xmldata.get('plurals', {}))
-        node = minidom.parseString(datastring).childNodes[0]
-        return {node.nodeName: self._from_xml_node(node, plurals)}
-
-    def _from_xml_node(self, node, listnames):
-        """Convert a minidom node to a simple Python type.
-
-        listnames is a collection of names of XML nodes whose subnodes should
-        be considered list items.
-
-        """
-        if len(node.childNodes) == 1 and node.childNodes[0].nodeType == 3:
-            return node.childNodes[0].nodeValue
-        elif node.nodeName in listnames:
-            return [self._from_xml_node(n, listnames)
-                    for n in node.childNodes if n.nodeType != node.TEXT_NODE]
-        else:
-            result = dict()
-            for attr in node.attributes.keys():
-                result[attr] = node.attributes[attr].nodeValue
-            for child in node.childNodes:
-                if child.nodeType != node.TEXT_NODE:
-                    result[child.nodeName] = self._from_xml_node(child,
-                                                                 listnames)
-            return result
-
-    def _to_json(self, data):
-        return jsonutils.dumps(data)
-
-    def _to_xml(self, data):
-        metadata = self.metadata.get('application/xml', {})
-        # We expect data to contain a single key which is the XML root.
-        root_key = data.keys()[0]
-        doc = minidom.Document()
-        node = self._to_xml_node(doc, metadata, root_key, data[root_key])
-
-        xmlns = node.getAttribute('xmlns')
-        if not xmlns and self.default_xmlns:
-            node.setAttribute('xmlns', self.default_xmlns)
-
-        return node.toprettyxml(indent='', newl='')
-
-    def _to_xml_node(self, doc, metadata, nodename, data):
-        """Recursive method to convert data members to XML nodes."""
-        result = doc.createElement(nodename)
-
-        # Set the xml namespace if one is specified
-        # TODO(justinsb): We could also use prefixes on the keys
-        xmlns = metadata.get('xmlns', None)
-        if xmlns:
-            result.setAttribute('xmlns', xmlns)
-        if isinstance(data, list):
-            collections = metadata.get('list_collections', {})
-            if nodename in collections:
-                metadata = collections[nodename]
-                for item in data:
-                    node = doc.createElement(metadata['item_name'])
-                    node.setAttribute(metadata['item_key'], str(item))
-                    result.appendChild(node)
-                return result
-            singular = metadata.get('plurals', {}).get(nodename, None)
-            if singular is None:
-                if nodename.endswith('s'):
-                    singular = nodename[:-1]
-                else:
-                    singular = 'item'
-            for item in data:
-                node = self._to_xml_node(doc, metadata, singular, item)
-                result.appendChild(node)
-        elif isinstance(data, dict):
-            collections = metadata.get('dict_collections', {})
-            if nodename in collections:
-                metadata = collections[nodename]
-                for k, v in data.items():
-                    node = doc.createElement(metadata['item_name'])
-                    node.setAttribute(metadata['item_key'], str(k))
-                    text = doc.createTextNode(str(v))
-                    node.appendChild(text)
-                    result.appendChild(node)
-                return result
-            attrs = metadata.get('attributes', {}).get(nodename, {})
-            for k, v in data.items():
-                if k in attrs:
-                    result.setAttribute(k, str(v))
-                else:
-                    node = self._to_xml_node(doc, metadata, k, v)
-                    result.appendChild(node)
-        else:
-            # Type is atom.
-            node = doc.createTextNode(str(data))
-            result.appendChild(node)
-        return result

@@ -1,6 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
-# Copyright 2012 NEC Corporation.  All rights reserved.
+
+# Copyright 2012 NEC Corporation.
+# All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -13,21 +14,24 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+#
 # @author: Ryota MIBU
+#
 
+from oslo.config import cfg
+
+from quantum.api import extensions
 from quantum.api.v2 import attributes
 from quantum.api.v2 import base
-from quantum.extensions import extensions
 from quantum.manager import QuantumManager
 from quantum import quota
-from quantum.openstack.common import cfg
 
 
 quota_packet_filter_opts = [
     cfg.IntOpt('quota_packet_filter',
                default=100,
-               help="number of packet_filters allowed per tenant, "
-                    "-1 for unlimited")
+               help=_("Number of packet_filters allowed per tenant, "
+                      "-1 for unlimited"))
 ]
 # Register the configuration options
 cfg.CONF.register_opts(quota_packet_filter_opts, 'QUOTAS')
@@ -38,7 +42,7 @@ PACKET_FILTER_NUMBER_REGEX = "(?i)^(0x[0-9a-fA-F]+|[0-9]+)$"
 PACKET_FILTER_PROTOCOL_REGEX = "(?i)^(icmp|tcp|udp|arp|0x[0-9a-fA-F]+|[0-9]+)$"
 PACKET_FILTER_ATTR_MAP = {
     'id': {'allow_post': False, 'allow_put': False,
-           'validate': {'type:regex': attributes.UUID_PATTERN},
+           'validate': {'type:uuid': None},
            'is_visible': True},
     'name': {'allow_post': True, 'allow_put': True, 'default': '',
              'is_visible': True},
@@ -46,12 +50,11 @@ PACKET_FILTER_ATTR_MAP = {
                   'required_by_policy': True,
                   'is_visible': True},
     'network_id': {'allow_post': True, 'allow_put': False,
-                   'validate': {'type:regex': attributes.UUID_PATTERN},
+                   'validate': {'type:uuid': None},
                    'is_visible': True},
     'admin_state_up': {'allow_post': True, 'allow_put': True,
                        'default': True,
                        'convert_to': attributes.convert_to_boolean,
-                       'validate': {'type:boolean': None},
                        'is_visible': True},
     'status': {'allow_post': False, 'allow_put': False,
                'is_visible': True},
@@ -63,7 +66,7 @@ PACKET_FILTER_ATTR_MAP = {
                  'is_visible': True},
     'in_port': {'allow_post': True, 'allow_put': True,
                 'default': attributes.ATTR_NOT_SPECIFIED,
-                'validate': {'type:regex': attributes.UUID_PATTERN},
+                'validate': {'type:uuid': None},
                 'is_visible': True},
     'src_mac': {'allow_post': True, 'allow_put': True,
                 'default': attributes.ATTR_NOT_SPECIFIED,
@@ -100,10 +103,7 @@ PACKET_FILTER_ATTR_MAP = {
 }
 
 
-class Packetfilter(object):
-
-    def __init__(self):
-        pass
+class Packetfilter(extensions.ExtensionDescriptor):
 
     def get_name(self):
         return "PacketFilters"
@@ -128,4 +128,6 @@ class Packetfilter(object):
                                             quota._count_resource,
                                             'quota_packet_filter')
         quota.QUOTAS.register_resource(qresource)
-        return [extensions.ResourceExtension('packet_filters', resource)]
+        return [extensions.ResourceExtension('packet_filters',
+                                             resource,
+                                             attr_map=PACKET_FILTER_ATTR_MAP)]

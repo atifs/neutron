@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-#    Copyright 2011 OpenStack LLC
+#    Copyright 2011 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -14,33 +14,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-try:
-    from quantum.vcsversion import version_info
-except ImportError:
-    version_info = {'branch_nick': u'LOCALBRANCH',
-                    'revision_id': 'LOCALREVISION',
-                    'revno': 0}
+from quantum.openstack.common import version as common_version
 
-QUANTUM_VERSION = ['2013', '1', None]
-YEAR, COUNT, REVSISION = QUANTUM_VERSION
-
-FINAL = False   # This becomes true at Release Candidate time
-
-
-def canonical_version_string():
-    return '.'.join(filter(None, QUANTUM_VERSION))
-
-
-def version_string():
-    if FINAL:
-        return canonical_version_string()
-    else:
-        return '%s-dev' % (canonical_version_string(),)
-
-
-def vcs_version_string():
-    return "%s:%s" % (version_info['branch_nick'], version_info['revision_id'])
-
-
-def version_string_with_vcs():
-    return "%s-%s" % (canonical_version_string(), vcs_version_string())
+version_info = common_version.VersionInfo('quantum')

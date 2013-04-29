@@ -8,6 +8,7 @@ function usage {
   echo "  -N, --no-virtual-env     Don't use virtualenv.  Run tests in local environment"
   echo "  -c, --coverage           Generate coverage report"
   echo "  -f, --force              Force a clean re-build of the virtual environment. Useful when dependencies have been added."
+  echo "  -u, --update             Update the virtual environment with any newer package versions"
   echo "  -p, --pep8               Just run pep8"
   echo "  -P, --no-pep8            Don't run pep8"
   echo "  -l, --pylint             Just run pylint"
@@ -26,7 +27,8 @@ function process_option {
     -V|--virtual-env) let always_venv=1; let never_venv=0;;
     -N|--no-virtual-env) let always_venv=0; let never_venv=1;;
     -f|--force) let force=1;;
-    -p|--pep8) let just_pep8=1;let never_venv=1; let always_venv=0;;
+    -u|--update) update=1;;
+    -p|--pep8) let just_pep8=1;;
     -P|--no-pep8) no_pep8=1;;
     -l|--pylint) let just_pylint=1; let never_venv=1; let always_venv=0;;
     -c|--coverage) coverage=1;;
@@ -48,6 +50,7 @@ noseargs=
 wrapper=""
 coverage=0
 verbose=0
+update=0
 
 for arg in "$@"; do
   process_option $arg
@@ -100,7 +103,7 @@ function run_pep8 {
   PEP8_EXCLUDE="vcsversion.py,*.pyc,openstack"
   # we now turn off pep8 1.3 E125 check to avoid make change to 
   # openstack-common . 
-  PEP8_OPTIONS="--exclude=$PEP8_EXCLUDE --ignore=E125 --repeat --show-source"
+  PEP8_OPTIONS="--exclude=$PEP8_EXCLUDE --ignore=E125,E711,E712 --repeat --show-source"
   PEP8_INCLUDE="bin/* quantum run_tests.py setup*.py"
   ${wrapper} pep8 $PEP8_OPTIONS $PEP8_INCLUDE
 }
@@ -122,6 +125,10 @@ then
   if [ $force -eq 1 ]; then
     echo "Cleaning virtualenv..."
     rm -rf ${venv}
+  fi
+  if [ $update -eq 1 ]; then
+    echo "Updating virtualenv..."
+    python tools/install_venv.py
   fi
   if [ -e ${venv} ]; then
     wrapper="${with_venv}"

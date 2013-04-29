@@ -17,34 +17,43 @@
 #
 # @author: Juliano Martinez, Locaweb.
 
-import os
 import inspect
-import unittest
+import os
 
 import mox
 
 from quantum.agent.linux import iptables_manager
+from quantum.tests import base
 
 
-class IptablesManagerStateFulTestCase(unittest.TestCase):
+class IptablesManagerStateFulTestCase(base.BaseTestCase):
 
     def setUp(self):
+        super(IptablesManagerStateFulTestCase, self).setUp()
         self.mox = mox.Mox()
         self.root_helper = 'sudo'
         self.iptables = (iptables_manager.
                          IptablesManager(root_helper=self.root_helper))
         self.mox.StubOutWithMock(self.iptables, "execute")
-
-    def tearDown(self):
-        self.mox.UnsetStubs()
+        self.addCleanup(self.mox.UnsetStubs)
 
     def test_binary_name(self):
         self.assertEqual(iptables_manager.binary_name,
                          os.path.basename(inspect.stack()[-1][1])[:16])
 
+    def test_get_chanin_name(self):
+        name = '0123456789' * 5
+        # 28 chars is the maximum length of iptables chain name.
+        self.assertEqual(iptables_manager.get_chain_name(name, wrap=False),
+                         name[:28])
+        # 11 chars is the maximum length of chain name of iptable_manager
+        # if binary_name is prepended.
+        self.assertEqual(iptables_manager.get_chain_name(name, wrap=True),
+                         name[:11])
+
     def test_add_and_remove_chain(self):
         bn = iptables_manager.binary_name
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
         nat_dump = (':%s-OUTPUT - [0:0]\n:%s-snat - [0:0]\n:%s-PREROUTING -'
@@ -56,7 +65,7 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                     '%s-snat -j %s-float-snat\n' % (bn, bn, bn, bn, bn, bn,
                     bn, bn, bn, bn, bn))
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-FORWARD - [0:0]\n:%s-INPUT'
                               ' - [0:0]\n:%s-local - [0:0]\n:%s-filter - [0:'
                               '0]\n:%s-OUTPUT - [0:0]\n:quantum-filter-top -'
@@ -67,17 +76,17 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                               '\n' % (bn, bn, bn, bn, bn, bn, bn, bn, bn)
                               ), root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=nat_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-FORWARD - [0:0]\n:%s-INPUT'
                               ' - [0:0]\n:%s-local - [0:0]\n:%s-OUTPUT - [0:'
                               '0]\n:quantum-filter-top - [0:0]\n-A FORWARD -'
@@ -88,10 +97,10 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                               bn, bn, bn, bn)), root_helper=self.root_helper
                               ).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=nat_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
@@ -107,7 +116,7 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
 
     def test_add_filter_rule(self):
         bn = iptables_manager.binary_name
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
         nat_dump = (':%s-OUTPUT - [0:0]\n:%s-snat - [0:0]\n:%s-PREROUTING -'
@@ -119,7 +128,7 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                     '%s-snat -j %s-float-snat\n' % (bn, bn, bn, bn, bn, bn,
                     bn, bn, bn, bn, bn))
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-FORWARD - [0:0]\n:%s-INPUT'
                               ' - [0:0]\n:%s-local - [0:0]\n:%s-filter - [0:'
                               '0]\n:%s-OUTPUT - [0:0]\n:quantum-filter-top -'
@@ -132,17 +141,17 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                               bn, bn, bn, bn, bn, bn, bn, bn)),
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=nat_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-FORWARD - [0:0]\n:%s-INPUT -'
                               ' [0:0]\n:%s-local - [0:0]\n:%s-OUTPUT - [0:0]\n'
                               ':quantum-filter-top - [0:0]\n-A FORWARD -j quan'
@@ -153,10 +162,10 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                               bn)), root_helper=self.root_helper
                               ).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=nat_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
@@ -192,17 +201,17 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                        'ORWARD -j %s-FORWARD\n' % (bn, bn, bn, bn, bn,
                        bn, bn, bn))
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=filter_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-float-snat - [0:0]\n:%s-POS'
                               'TROUTING - [0:0]\n:%s-PREROUTING - [0:0]\n:%s-'
                               'nat - [0:0]\n:%s-OUTPUT - [0:0]\n:%s-snat - [0'
@@ -217,17 +226,17 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
                               bn, bn, bn, bn, bn, bn, bn, bn, bn, bn, bn)),
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'filter'],
+        self.iptables.execute(['iptables-save', '-t', 'filter'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=filter_dump,
                               root_helper=self.root_helper).AndReturn(None)
 
-        self.iptables.execute(['/sbin/iptables-save', '-t', 'nat'],
+        self.iptables.execute(['iptables-save', '-t', 'nat'],
                               root_helper=self.root_helper).AndReturn('')
 
-        self.iptables.execute(['/sbin/iptables-restore'],
+        self.iptables.execute(['iptables-restore'],
                               process_input=(':%s-float-snat - [0:0]\n:%s-POST'
                               'ROUTING - [0:0]\n:%s-PREROUTING - [0:0]\n:%s-OU'
                               'TPUT - [0:0]\n:%s-snat - [0:0]\n:quantum-postro'
@@ -285,9 +294,10 @@ class IptablesManagerStateFulTestCase(unittest.TestCase):
         self.mox.VerifyAll()
 
 
-class IptablesManagerStateLessTestCase(unittest.TestCase):
+class IptablesManagerStateLessTestCase(base.BaseTestCase):
 
     def setUp(self):
+        super(IptablesManagerStateLessTestCase, self).setUp()
         self.iptables = (iptables_manager.IptablesManager(state_less=True))
 
     def test_nat_not_found(self):

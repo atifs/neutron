@@ -1,3 +1,5 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
 # Copyright 2012 Nicira, Inc.
 # All Rights Reserved
 #
@@ -13,8 +15,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # @author: Somik Behera, Nicira Networks, Inc.
 
 import httplib  # basic HTTP library for HTTPS connections
@@ -24,6 +24,17 @@ from quantum.plugins.nicira.nicira_nvp_plugin.api_client import (
 
 LOG = logging.getLogger("NVPApiHelper")
 LOG.setLevel(logging.INFO)
+
+
+def _find_nvp_version_in_headers(headers):
+    # be safe if headers is None - do not cause a failure
+    for (header_name, header_value) in (headers or ()):
+        try:
+            if header_name == 'server':
+                return header_value.split('/')[1]
+        except IndexError:
+            LOG.warning(_("Unable to fetch NVP version from response "
+                          "headers:%s"), headers)
 
 
 class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
@@ -36,8 +47,8 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
     '''
 
     def __init__(self, api_providers, user, password, request_timeout,
-                 http_timeout, retries, redirects, failover_time,
-                 concurrent_connections=3):
+                 http_timeout, retries, redirects,
+                 concurrent_connections=3, nvp_gen_timeout=-1):
         '''Constructor.
 
         :param api_providers: a list of tuples in the form:
@@ -53,18 +64,19 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
             controller in the cluster)
         :param retries: the number of concurrent connections.
         :param redirects: the number of concurrent connections.
-        :param failover_time: minimum time between controller failover and new
-            connections allowed.
         '''
         client_eventlet.NvpApiClientEventlet.__init__(
             self, api_providers, user, password, concurrent_connections,
-            failover_time=failover_time)
+            nvp_gen_timeout)
 
         self._request_timeout = request_timeout
         self._http_timeout = http_timeout
         self._retries = retries
         self._redirects = redirects
+        self._nvp_version = None
 
+    # NOTE(salvatore-orlando): This method is not used anymore. Login is now
+    # performed automatically inside the request eventlet if necessary.
     def login(self, user=None, password=None):
         '''Login to NVP controller.
 
@@ -84,7 +96,7 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
         if password:
             self._password = password
 
-        return client_eventlet.NvpApiClientEventlet.login(self)
+        return client_eventlet.NvpApiClientEventlet._login(self)
 
     def request(self, method, url, body="", content_type="application/json"):
         '''Issues request to controller.'''
@@ -96,7 +108,7 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
             retries=self._retries, redirects=self._redirects)
         g.start()
         response = g.join()
-        LOG.debug('NVPApiHelper.request() returns "%s"' % response)
+        LOG.debug(_('NVPApiHelper.request() returns "%s"'), response)
 
         # response is a modified HTTPResponse object or None.
         # response.read() will not work on response as the underlying library
@@ -109,7 +121,7 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
 
         if response is None:
             # Timeout.
-            LOG.error('Request timed out: %s to %s' % (method, url))
+            LOG.error(_('Request timed out: %(method)s to %(url)s'), locals())
             raise RequestTimeout()
 
         status = response.status
@@ -119,18 +131,31 @@ class NVPApiHelper(client_eventlet.NvpApiClientEventlet):
         # Fail-fast: Check for exception conditions and raise the
         # appropriate exceptions for known error codes.
         if status in self.error_codes:
-            LOG.error("Received error code: %s" % status)
-            LOG.error("Server Error Message: %s" % response.body)
+            LOG.error(_("Received error code: %s"), status)
+            LOG.error(_("Server Error Message: %s"), response.body)
             self.error_codes[status](self)
 
         # Continue processing for non-error condition.
         if (status != httplib.OK and status != httplib.CREATED
                 and status != httplib.NO_CONTENT):
-            LOG.error("%s to %s, unexpected response code: %d (content = '%s')"
-                      % (method, url, response.status, response.body))
+            LOG.error(_("%(method)s to %(url)s, unexpected response code: "
+                        "%(status)d (content = '%(body)s')"),
+                      {'method': method, 'url': url,
+                       'status': response.status, 'body': response.body})
             return None
 
+        if not self._nvp_version:
+            self._nvp_version = _find_nvp_version_in_headers(response.headers)
+
         return response.body
+
+    def get_nvp_version(self):
+        if not self._nvp_version:
+            # generate a simple request (/ws.v1/log)
+            # this will cause nvp_version to be fetched
+            # don't bother about response
+            self.request('GET', '/ws.v1/log')
+        return self._nvp_version
 
     def fourZeroFour(self):
         raise ResourceNotFound()
@@ -169,7 +194,7 @@ class NvpApiException(Exception):
     with the keyword arguments provided to the constructor.
 
     '''
-    message = "An unknown exception occurred."
+    message = _("An unknown exception occurred.")
 
     def __init__(self, **kwargs):
         try:
@@ -184,26 +209,27 @@ class NvpApiException(Exception):
 
 
 class UnAuthorizedRequest(NvpApiException):
-    message = "Server denied session's authentication credentials."
+    message = _("Server denied session's authentication credentials.")
 
 
 class ResourceNotFound(NvpApiException):
-    message = "An entity referenced in the request was not found."
+    message = _("An entity referenced in the request was not found.")
 
 
 class Conflict(NvpApiException):
-    message = "Request conflicts with configuration on a different entity."
+    message = _("Request conflicts with configuration on a different "
+                "entity.")
 
 
 class ServiceUnavailable(NvpApiException):
-    message = ("Request could not completed because the associated "
-               "resource could not be reached.")
+    message = _("Request could not completed because the associated "
+                "resource could not be reached.")
 
 
 class Forbidden(NvpApiException):
-    message = ("The request is forbidden from accessing the "
-               "referenced resource.")
+    message = _("The request is forbidden from accessing the "
+                "referenced resource.")
 
 
 class RequestTimeout(NvpApiException):
-    message = "The request has timed out."
+    message = _("The request has timed out.")

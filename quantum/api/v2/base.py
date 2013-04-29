@@ -1,130 +1,120 @@
-# Copyright (c) 2012 OpenStack, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-import logging
-import socket
+# Copyright (c) 2012 OpenStack Foundation.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
 
+import netaddr
 import webob.exc
 
+from oslo.config import cfg
+
+from quantum.api import api_common
+from quantum.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from quantum.api.v2 import attributes
 from quantum.api.v2 import resource as wsgi_resource
 from quantum.common import exceptions
-from quantum.openstack.common import cfg
+from quantum.openstack.common import log as logging
 from quantum.openstack.common.notifier import api as notifier_api
 from quantum import policy
 from quantum import quota
 
+
 LOG = logging.getLogger(__name__)
-XML_NS_V20 = 'http://openstack.org/quantum/api/v2.0'
 
 FAULT_MAP = {exceptions.NotFound: webob.exc.HTTPNotFound,
+             exceptions.Conflict: webob.exc.HTTPConflict,
              exceptions.InUse: webob.exc.HTTPConflict,
              exceptions.BadRequest: webob.exc.HTTPBadRequest,
-             exceptions.ResourceExhausted: webob.exc.HTTPServiceUnavailable,
-             exceptions.MacAddressGenerationFailure:
-             webob.exc.HTTPServiceUnavailable,
-             exceptions.StateInvalid: webob.exc.HTTPBadRequest,
-             exceptions.InvalidInput: webob.exc.HTTPBadRequest,
-             exceptions.OverlappingAllocationPools: webob.exc.HTTPConflict,
-             exceptions.OutOfBoundsAllocationPool: webob.exc.HTTPBadRequest,
-             exceptions.InvalidAllocationPool: webob.exc.HTTPBadRequest,
-             exceptions.InvalidSharedSetting: webob.exc.HTTPConflict,
-             exceptions.HostRoutesExhausted: webob.exc.HTTPBadRequest,
-             exceptions.DNSNameServersExhausted: webob.exc.HTTPBadRequest,
-             # Some plugins enforce policies as well
-             exceptions.PolicyNotAuthorized: webob.exc.HTTPForbidden
+             exceptions.ServiceUnavailable: webob.exc.HTTPServiceUnavailable,
+             exceptions.NotAuthorized: webob.exc.HTTPForbidden,
+             netaddr.AddrFormatError: webob.exc.HTTPBadRequest,
              }
-
-QUOTAS = quota.QUOTAS
-
-
-def _get_hostname():
-    return socket.gethostname()
-
-
-# Register the configuration options
-cfg.CONF.register_opt(cfg.StrOpt('host', default=_get_hostname()))
-
-
-def _fields(request):
-    """
-    Extracts the list of fields to return
-    """
-    return [v for v in request.GET.getall('fields') if v]
-
-
-def _filters(request, attr_info):
-    """
-    Extracts the filters from the request string
-
-    Returns a dict of lists for the filters:
-
-    check=a&check=b&name=Bob&
-
-    becomes
-
-    {'check': [u'a', u'b'], 'name': [u'Bob']}
-    """
-    res = {}
-    for key in set(request.GET):
-        if key == 'fields':
-            continue
-        values = [v for v in request.GET.getall(key) if v]
-        key_attr_info = attr_info.get(key, {})
-        if not key_attr_info and values:
-            res[key] = values
-            continue
-        convert_list_to = key_attr_info.get('convert_list_to')
-        if not convert_list_to:
-            convert_to = key_attr_info.get('convert_to')
-            if convert_to:
-                convert_list_to = lambda values_: [convert_to(x)
-                                                   for x in values_]
-        if convert_list_to:
-            try:
-                result_values = convert_list_to(values)
-            except exceptions.InvalidInput as e:
-                raise webob.exc.HTTPBadRequest(str(e))
-        else:
-            result_values = values
-        if result_values:
-            res[key] = result_values
-    return res
 
 
 class Controller(object):
+    LIST = 'list'
+    SHOW = 'show'
+    CREATE = 'create'
+    UPDATE = 'update'
+    DELETE = 'delete'
 
     def __init__(self, plugin, collection, resource, attr_info,
-                 allow_bulk=False, member_actions=None):
+                 allow_bulk=False, member_actions=None, parent=None,
+                 allow_pagination=False, allow_sorting=False):
         if member_actions is None:
             member_actions = []
         self._plugin = plugin
-        self._collection = collection
-        self._resource = resource
+        self._collection = collection.replace('-', '_')
+        self._resource = resource.replace('-', '_')
         self._attr_info = attr_info
         self._allow_bulk = allow_bulk
+        self._allow_pagination = allow_pagination
+        self._allow_sorting = allow_sorting
         self._native_bulk = self._is_native_bulk_supported()
+        self._native_pagination = self._is_native_pagination_supported()
+        self._native_sorting = self._is_native_sorting_supported()
         self._policy_attrs = [name for (name, info) in self._attr_info.items()
                               if info.get('required_by_policy')]
         self._publisher_id = notifier_api.publisher_id('network')
+        self._dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         self._member_actions = member_actions
+        self._primary_key = self._get_primary_key()
+        if self._allow_pagination and self._native_pagination:
+            # Native pagination need native sorting support
+            if not self._native_sorting:
+                raise Exception(_("Native pagination depend on native "
+                                  "sorting"))
+            if not self._allow_sorting:
+                LOG.info(_("Allow sorting is enabled because native "
+                           "pagination requires native sorting"))
+                self._allow_sorting = True
+
+        if parent:
+            self._parent_id_name = '%s_id' % parent['member_name']
+            parent_part = '_%s' % parent['member_name']
+        else:
+            self._parent_id_name = None
+            parent_part = ''
+        self._plugin_handlers = {
+            self.LIST: 'get%s_%s' % (parent_part, self._collection),
+            self.SHOW: 'get%s_%s' % (parent_part, self._resource)
+        }
+        for action in [self.CREATE, self.UPDATE, self.DELETE]:
+            self._plugin_handlers[action] = '%s%s_%s' % (action, parent_part,
+                                                         self._resource)
+
+    def _get_primary_key(self, default_primary_key='id'):
+        for key, value in self._attr_info.iteritems():
+            if value.get('primary_key', False):
+                return key
+        return default_primary_key
 
     def _is_native_bulk_supported(self):
         native_bulk_attr_name = ("_%s__native_bulk_support"
                                  % self._plugin.__class__.__name__)
         return getattr(self._plugin, native_bulk_attr_name, False)
+
+    def _is_native_pagination_supported(self):
+        native_pagination_attr_name = ("_%s__native_pagination_support"
+                                       % self._plugin.__class__.__name__)
+        return getattr(self._plugin, native_pagination_attr_name, False)
+
+    def _is_native_sorting_supported(self):
+        native_sorting_attr_name = ("_%s__native_sorting_support"
+                                    % self._plugin.__class__.__name__)
+        return getattr(self._plugin, native_sorting_attr_name, False)
 
     def _is_visible(self, attr):
         attr_val = self._attr_info.get(attr)
@@ -136,8 +126,8 @@ class Controller(object):
             fields_to_strip = []
 
         return dict(item for item in data.iteritems()
-                    if self._is_visible(item[0])
-                    and not item[0] in fields_to_strip)
+                    if (self._is_visible(item[0]) and
+                        item[0] not in fields_to_strip))
 
     def _do_field_list(self, original_fields):
         fields_to_add = None
@@ -150,22 +140,59 @@ class Controller(object):
 
     def __getattr__(self, name):
         if name in self._member_actions:
-            def _handle_action(request, id, body=None):
-                return getattr(self._plugin, name)(request.context, id, body)
+            def _handle_action(request, id, **kwargs):
+                if 'body' in kwargs:
+                    body = kwargs.pop('body')
+                    return getattr(self._plugin, name)(request.context, id,
+                                                       body, **kwargs)
+                else:
+                    return getattr(self._plugin, name)(request.context, id,
+                                                       **kwargs)
             return _handle_action
         else:
             raise AttributeError
 
-    def _items(self, request, do_authz=False):
+    def _get_pagination_helper(self, request):
+        if self._allow_pagination and self._native_pagination:
+            return api_common.PaginationNativeHelper(request,
+                                                     self._primary_key)
+        elif self._allow_pagination:
+            return api_common.PaginationEmulatedHelper(request,
+                                                       self._primary_key)
+        return api_common.NoPaginationHelper(request, self._primary_key)
+
+    def _get_sorting_helper(self, request):
+        if self._allow_sorting and self._native_sorting:
+            return api_common.SortingNativeHelper(request, self._attr_info)
+        elif self._allow_sorting:
+            return api_common.SortingEmulatedHelper(request, self._attr_info)
+        return api_common.NoSortingHelper(request, self._attr_info)
+
+    def _items(self, request, do_authz=False, parent_id=None):
         """Retrieves and formats a list of elements of the requested entity"""
         # NOTE(salvatore-orlando): The following ensures that fields which
         # are needed for authZ policy validation are not stripped away by the
         # plugin before returning.
-        original_fields, fields_to_add = self._do_field_list(_fields(request))
-        kwargs = {'filters': _filters(request, self._attr_info),
+        original_fields, fields_to_add = self._do_field_list(
+            api_common.list_args(request, 'fields'))
+        filters = api_common.get_filters(request, self._attr_info,
+                                         ['fields', 'sort_key', 'sort_dir',
+                                          'limit', 'marker', 'page_reverse'])
+        kwargs = {'filters': filters,
                   'fields': original_fields}
-        obj_getter = getattr(self._plugin, "get_%s" % self._collection)
+        sorting_helper = self._get_sorting_helper(request)
+        pagination_helper = self._get_pagination_helper(request)
+        sorting_helper.update_args(kwargs)
+        sorting_helper.update_fields(original_fields, fields_to_add)
+        pagination_helper.update_args(kwargs)
+        pagination_helper.update_fields(original_fields, fields_to_add)
+        if parent_id:
+            kwargs[self._parent_id_name] = parent_id
+        obj_getter = getattr(self._plugin, self._plugin_handlers[self.LIST])
         obj_list = obj_getter(request.context, **kwargs)
+        obj_list = sorting_helper.sort(obj_list)
+        obj_list = pagination_helper.paginate(obj_list)
+
         # Check authz
         if do_authz:
             # FIXME(salvatore-orlando): obj_getter might return references to
@@ -173,17 +200,26 @@ class Controller(object):
             # Omit items from list that should not be visible
             obj_list = [obj for obj in obj_list
                         if policy.check(request.context,
-                                        "get_%s" % self._resource,
+                                        self._plugin_handlers[self.SHOW],
                                         obj,
                                         plugin=self._plugin)]
-        return {self._collection: [self._view(obj,
-                                              fields_to_strip=fields_to_add)
-                                   for obj in obj_list]}
+        collection = {self._collection:
+                      [self._view(obj,
+                                  fields_to_strip=fields_to_add)
+                       for obj in obj_list]}
+        pagination_links = pagination_helper.get_links(obj_list)
+        if pagination_links:
+            collection[self._collection + "_links"] = pagination_links
 
-    def _item(self, request, id, do_authz=False, field_list=None):
+        return collection
+
+    def _item(self, request, id, do_authz=False, field_list=None,
+              parent_id=None):
         """Retrieves and formats a single element of the requested entity"""
         kwargs = {'fields': field_list}
-        action = "get_%s" % self._resource
+        action = self._plugin_handlers[self.SHOW]
+        if parent_id:
+            kwargs[self._parent_id_name] = parent_id
         obj_getter = getattr(self._plugin, action)
         obj = obj_getter(request.context, id, **kwargs)
         # Check authz
@@ -193,33 +229,43 @@ class Controller(object):
             policy.enforce(request.context, action, obj, plugin=self._plugin)
         return obj
 
-    def index(self, request):
-        """Returns a list of the requested entity"""
-        return self._items(request, True)
+    def _send_dhcp_notification(self, context, data, methodname):
+        if cfg.CONF.dhcp_agent_notification:
+            self._dhcp_agent_notifier.notify(context, data, methodname)
 
-    def show(self, request, id):
+    def index(self, request, **kwargs):
+        """Returns a list of the requested entity"""
+        parent_id = kwargs.get(self._parent_id_name)
+        return self._items(request, True, parent_id)
+
+    def show(self, request, id, **kwargs):
         """Returns detailed information about the requested entity"""
         try:
             # NOTE(salvatore-orlando): The following ensures that fields
             # which are needed for authZ policy validation are not stripped
             # away by the plugin before returning.
-            field_list, added_fields = self._do_field_list(_fields(request))
+            field_list, added_fields = self._do_field_list(
+                api_common.list_args(request, "fields"))
+            parent_id = kwargs.get(self._parent_id_name)
             return {self._resource:
                     self._view(self._item(request,
                                           id,
                                           do_authz=True,
-                                          field_list=field_list),
+                                          field_list=field_list,
+                                          parent_id=parent_id),
                                fields_to_strip=added_fields)}
         except exceptions.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
             raise webob.exc.HTTPNotFound()
 
-    def _emulate_bulk_create(self, obj_creator, request, body):
+    def _emulate_bulk_create(self, obj_creator, request, body, parent_id=None):
         objs = []
         try:
             for item in body[self._collection]:
                 kwargs = {self._resource: item}
+                if parent_id:
+                    kwargs[self._parent_id_name] = parent_id
                 objs.append(self._view(obj_creator(request.context,
                                                    **kwargs)))
             return objs
@@ -227,121 +273,114 @@ class Controller(object):
         # could raise any kind of exception
         except Exception as ex:
             for obj in objs:
-                delete_action = "delete_%s" % self._resource
-                obj_deleter = getattr(self._plugin, delete_action)
+                obj_deleter = getattr(self._plugin,
+                                      self._plugin_handlers[self.DELETE])
                 try:
-                    obj_deleter(request.context, obj['id'])
+                    kwargs = ({self._parent_id_name: parent_id} if parent_id
+                              else {})
+                    obj_deleter(request.context, obj['id'], **kwargs)
                 except Exception:
                     # broad catch as our only purpose is to log the exception
-                    LOG.exception("Unable to undo add for %s %s",
-                                  self._resource, obj['id'])
+                    LOG.exception(_("Unable to undo add for "
+                                    "%(resource)s %(id)s"),
+                                  {'resource': self._resource,
+                                   'id': obj['id']})
             # TODO(salvatore-orlando): The object being processed when the
             # plugin raised might have been created or not in the db.
             # We need a way for ensuring that if it has been created,
             # it is then deleted
-            raise
+            raise ex
 
-    def create(self, request, body=None):
+    def create(self, request, body=None, **kwargs):
         """Creates a new instance of the requested entity"""
+        parent_id = kwargs.get(self._parent_id_name)
         notifier_api.notify(request.context,
                             self._publisher_id,
                             self._resource + '.create.start',
-                            notifier_api.INFO,
+                            notifier_api.CONF.default_notification_level,
                             body)
         body = Controller.prepare_request_body(request.context, body, True,
                                                self._resource, self._attr_info,
                                                allow_bulk=self._allow_bulk)
-        action = "create_%s" % self._resource
+        action = self._plugin_handlers[self.CREATE]
         # Check authz
-        try:
-            if self._collection in body:
-                # Have to account for bulk create
-                for item in body[self._collection]:
-                    self._validate_network_tenant_ownership(
-                        request,
-                        item[self._resource],
-                    )
-                    policy.enforce(request.context,
-                                   action,
-                                   item[self._resource],
-                                   plugin=self._plugin)
-                    try:
-                        count = QUOTAS.count(request.context, self._resource,
-                                             self._plugin, self._collection,
-                                             item[self._resource]['tenant_id'])
-                        kwargs = {self._resource: count + 1}
-                    except exceptions.QuotaResourceUnknown as e:
-                        # We don't want to quota this resource
-                        LOG.debug(e)
-                    except Exception:
-                        raise
-                    else:
-                        QUOTAS.limit_check(request.context,
-                                           item[self._resource]['tenant_id'],
-                                           **kwargs)
-            else:
-                self._validate_network_tenant_ownership(
-                    request,
-                    body[self._resource]
-                )
-                policy.enforce(request.context,
-                               action,
-                               body[self._resource],
-                               plugin=self._plugin)
-                try:
-                    count = QUOTAS.count(request.context, self._resource,
-                                         self._plugin, self._collection,
-                                         body[self._resource]['tenant_id'])
-                    kwargs = {self._resource: count + 1}
-                except exceptions.QuotaResourceUnknown as e:
-                    # We don't want to quota this resource
-                    LOG.debug(e)
-                except Exception:
-                    raise
+        if self._collection in body:
+            # Have to account for bulk create
+            items = body[self._collection]
+            deltas = {}
+            bulk = True
+        else:
+            items = [body]
+            bulk = False
+        for item in items:
+            self._validate_network_tenant_ownership(request,
+                                                    item[self._resource])
+            policy.enforce(request.context,
+                           action,
+                           item[self._resource],
+                           plugin=self._plugin)
+            try:
+                tenant_id = item[self._resource]['tenant_id']
+                count = quota.QUOTAS.count(request.context, self._resource,
+                                           self._plugin, self._collection,
+                                           tenant_id)
+                if bulk:
+                    delta = deltas.get(tenant_id, 0) + 1
+                    deltas[tenant_id] = delta
                 else:
-                    QUOTAS.limit_check(request.context,
-                                       body[self._resource]['tenant_id'],
-                                       **kwargs)
-        except exceptions.PolicyNotAuthorized:
-            LOG.exception("Create operation not authorized")
-            raise webob.exc.HTTPForbidden()
+                    delta = 1
+                kwargs = {self._resource: count + delta}
+            except exceptions.QuotaResourceUnknown as e:
+                # We don't want to quota this resource
+                LOG.debug(e)
+            else:
+                quota.QUOTAS.limit_check(request.context,
+                                         item[self._resource]['tenant_id'],
+                                         **kwargs)
 
         def notify(create_result):
+            notifier_method = self._resource + '.create.end'
             notifier_api.notify(request.context,
                                 self._publisher_id,
-                                self._resource + '.create.end',
-                                notifier_api.INFO,
+                                notifier_method,
+                                notifier_api.CONF.default_notification_level,
                                 create_result)
+            self._send_dhcp_notification(request.context,
+                                         create_result,
+                                         notifier_method)
             return create_result
 
+        kwargs = {self._parent_id_name: parent_id} if parent_id else {}
         if self._collection in body and self._native_bulk:
             # plugin does atomic bulk create operations
             obj_creator = getattr(self._plugin, "%s_bulk" % action)
-            objs = obj_creator(request.context, body)
+            objs = obj_creator(request.context, body, **kwargs)
             return notify({self._collection: [self._view(obj)
                                               for obj in objs]})
         else:
             obj_creator = getattr(self._plugin, action)
             if self._collection in body:
                 # Emulate atomic bulk behavior
-                objs = self._emulate_bulk_create(obj_creator, request, body)
+                objs = self._emulate_bulk_create(obj_creator, request,
+                                                 body, parent_id)
                 return notify({self._collection: objs})
             else:
-                kwargs = {self._resource: body}
+                kwargs.update({self._resource: body})
                 obj = obj_creator(request.context, **kwargs)
                 return notify({self._resource: self._view(obj)})
 
-    def delete(self, request, id):
+    def delete(self, request, id, **kwargs):
         """Deletes the specified entity"""
         notifier_api.notify(request.context,
                             self._publisher_id,
                             self._resource + '.delete.start',
-                            notifier_api.INFO,
+                            notifier_api.CONF.default_notification_level,
                             {self._resource + '_id': id})
-        action = "delete_%s" % self._resource
+        action = self._plugin_handlers[self.DELETE]
 
         # Check authz
-        obj = self._item(request, id)
+        parent_id = kwargs.get(self._parent_id_name)
+        obj = self._item(request, id, parent_id=parent_id)
         try:
             policy.enforce(request.context,
                            action,
@@ -353,34 +392,45 @@ class Controller(object):
             raise webob.exc.HTTPNotFound()
 
         obj_deleter = getattr(self._plugin, action)
-        obj_deleter(request.context, id)
+        obj_deleter(request.context, id, **kwargs)
+        notifier_method = self._resource + '.delete.end'
         notifier_api.notify(request.context,
                             self._publisher_id,
-                            self._resource + '.delete.end',
-                            notifier_api.INFO,
+                            notifier_method,
+                            notifier_api.CONF.default_notification_level,
                             {self._resource + '_id': id})
+        result = {self._resource: self._view(obj)}
+        self._send_dhcp_notification(request.context,
+                                     result,
+                                     notifier_method)
 
-    def update(self, request, id, body=None):
+    def update(self, request, id, body=None, **kwargs):
         """Updates the specified entity's attributes"""
-        payload = body.copy()
+        parent_id = kwargs.get(self._parent_id_name)
+        try:
+            payload = body.copy()
+        except AttributeError:
+            msg = _("Invalid format: %s") % request.body
+            raise exceptions.BadRequest(resource='body', msg=msg)
         payload['id'] = id
         notifier_api.notify(request.context,
                             self._publisher_id,
                             self._resource + '.update.start',
-                            notifier_api.INFO,
+                            notifier_api.CONF.default_notification_level,
                             payload)
         body = Controller.prepare_request_body(request.context, body, False,
                                                self._resource, self._attr_info,
                                                allow_bulk=self._allow_bulk)
-        action = "update_%s" % self._resource
+        action = self._plugin_handlers[self.UPDATE]
         # Load object to check authz
         # but pass only attributes in the original body and required
         # by the policy engine to the policy 'brain'
         field_list = [name for (name, value) in self._attr_info.iteritems()
                       if ('required_by_policy' in value and
                           value['required_by_policy'] or
-                          not 'default' in value)]
-        orig_obj = self._item(request, id, field_list=field_list)
+                          'default' not in value)]
+        orig_obj = self._item(request, id, field_list=field_list,
+                              parent_id=parent_id)
         orig_obj.update(body[self._resource])
         try:
             policy.enforce(request.context,
@@ -394,13 +444,19 @@ class Controller(object):
 
         obj_updater = getattr(self._plugin, action)
         kwargs = {self._resource: body}
+        if parent_id:
+            kwargs[self._parent_id_name] = parent_id
         obj = obj_updater(request.context, id, **kwargs)
         result = {self._resource: self._view(obj)}
+        notifier_method = self._resource + '.update.end'
         notifier_api.notify(request.context,
                             self._publisher_id,
-                            self._resource + '.update.end',
-                            notifier_api.INFO,
+                            notifier_method,
+                            notifier_api.CONF.default_notification_level,
                             result)
+        self._send_dhcp_notification(request.context,
+                                     result,
+                                     notifier_method)
         return result
 
     @staticmethod
@@ -436,22 +492,21 @@ class Controller(object):
         if not body:
             raise webob.exc.HTTPBadRequest(_("Resource body required"))
 
-        body = body or {resource: {}}
-        if collection in body and allow_bulk:
-            bulk_body = [Controller.prepare_request_body(
-                context, {resource: b}, is_create, resource, attr_info,
-                allow_bulk) if resource not in b
-                else Controller.prepare_request_body(
-                    context, b, is_create, resource, attr_info, allow_bulk)
-                for b in body[collection]]
-
+        prep_req_body = lambda x: Controller.prepare_request_body(
+            context,
+            x if resource in x else {resource: x},
+            is_create,
+            resource,
+            attr_info,
+            allow_bulk)
+        if collection in body:
+            if not allow_bulk:
+                raise webob.exc.HTTPBadRequest(_("Bulk operation "
+                                                 "not supported"))
+            bulk_body = [prep_req_body(item) for item in body[collection]]
             if not bulk_body:
                 raise webob.exc.HTTPBadRequest(_("Resources required"))
-
             return {collection: bulk_body}
-
-        elif collection in body and not allow_bulk:
-            raise webob.exc.HTTPBadRequest("Bulk operation not supported")
 
         res_dict = body.get(resource)
         if res_dict is None:
@@ -460,22 +515,22 @@ class Controller(object):
 
         Controller._populate_tenant_id(context, res_dict, is_create)
 
+        Controller._verify_attributes(res_dict, attr_info)
+
         if is_create:  # POST
             for attr, attr_vals in attr_info.iteritems():
-                is_required = ('default' not in attr_vals and
-                               attr_vals['allow_post'])
-                if is_required and attr not in res_dict:
-                    msg = _("Failed to parse request. Required "
-                            " attribute '%s' not specified") % attr
-                    raise webob.exc.HTTPBadRequest(msg)
-
-                if not attr_vals['allow_post'] and attr in res_dict:
-                    msg = _("Attribute '%s' not allowed in POST" % attr)
-                    raise webob.exc.HTTPBadRequest(msg)
-
                 if attr_vals['allow_post']:
+                    if ('default' not in attr_vals and
+                        attr not in res_dict):
+                        msg = _("Failed to parse request. Required "
+                                "attribute '%s' not specified") % attr
+                        raise webob.exc.HTTPBadRequest(msg)
                     res_dict[attr] = res_dict.get(attr,
                                                   attr_vals.get('default'))
+                else:
+                    if attr in res_dict:
+                        msg = _("Attribute '%s' not allowed in POST") % attr
+                        raise webob.exc.HTTPBadRequest(msg)
         else:  # PUT
             for attr, attr_vals in attr_info.iteritems():
                 if attr in res_dict and not attr_vals['allow_put']:
@@ -483,16 +538,14 @@ class Controller(object):
                     raise webob.exc.HTTPBadRequest(msg)
 
         for attr, attr_vals in attr_info.iteritems():
+            if (attr not in res_dict or
+                res_dict[attr] is attributes.ATTR_NOT_SPECIFIED):
+                continue
             # Convert values if necessary
-            if ('convert_to' in attr_vals and
-                attr in res_dict and
-                res_dict[attr] != attributes.ATTR_NOT_SPECIFIED):
+            if 'convert_to' in attr_vals:
                 res_dict[attr] = attr_vals['convert_to'](res_dict[attr])
-
             # Check that configured values are correct
-            if not ('validate' in attr_vals and
-                    attr in res_dict and
-                    res_dict[attr] != attributes.ATTR_NOT_SPECIFIED):
+            if 'validate' not in attr_vals:
                 continue
             for rule in attr_vals['validate']:
                 res = attributes.validators[rule](res_dict[attr],
@@ -503,6 +556,13 @@ class Controller(object):
                             "Reason: %(reason)s.") % msg_dict
                     raise webob.exc.HTTPBadRequest(msg)
         return body
+
+    @staticmethod
+    def _verify_attributes(res_dict, attr_info):
+        extra_keys = set(res_dict.keys()) - set(attr_info.keys())
+        if extra_keys:
+            msg = _("Unrecognized attribute(s) '%s'") % ', '.join(extra_keys)
+            raise webob.exc.HTTPBadRequest(msg)
 
     def _validate_network_tenant_ownership(self, request, resource_item):
         # TODO(salvatore-orlando): consider whether this check can be folded
@@ -529,17 +589,11 @@ class Controller(object):
 
 
 def create_resource(collection, resource, plugin, params, allow_bulk=False,
-                    member_actions=None):
+                    member_actions=None, parent=None, allow_pagination=False,
+                    allow_sorting=False):
     controller = Controller(plugin, collection, resource, params, allow_bulk,
-                            member_actions=member_actions)
+                            member_actions=member_actions, parent=parent,
+                            allow_pagination=allow_pagination,
+                            allow_sorting=allow_sorting)
 
-    # NOTE(jkoelker) To anyone wishing to add "proper" xml support
-    #                this is where you do it
-    serializers = {}
-    #    'application/xml': wsgi.XMLDictSerializer(metadata, XML_NS_V20),
-
-    deserializers = {}
-    #    'application/xml': wsgi.XMLDeserializer(metadata),
-
-    return wsgi_resource.Resource(controller, FAULT_MAP, deserializers,
-                                  serializers)
+    return wsgi_resource.Resource(controller, FAULT_MAP)

@@ -1,5 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-# Copyright 2011 OpenStack LLC.
+
+# Copyright (c) 2011 OpenStack Foundation.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -14,36 +15,26 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import logging
 import os
-import unittest
 
 import routes
 import webob
-from webtest import AppError
-from webtest import TestApp
+import webtest
 
+from quantum.api import extensions
 from quantum.common import config
-from quantum.common import exceptions
-from quantum.extensions import extensions
-from quantum.extensions.extensions import (
-    ExtensionManager,
-    ExtensionMiddleware,
-    PluginAwareExtensionManager,
-)
+from quantum.db import db_base_plugin_v2
 from quantum.openstack.common import jsonutils
-from quantum.db.db_base_plugin_v2 import QuantumDbPluginV2
-from quantum.tests.unit import BaseTest
-from quantum.tests.unit.extension_stubs import (
-    ExtensionExpectingPluginInterface,
-    StubBaseAppController,
-    StubExtension,
-    StubPlugin,
-)
+from quantum.openstack.common import log as logging
+from quantum.plugins.common import constants
+from quantum.tests import base
+from quantum.tests.unit import extension_stubs as ext_stubs
 import quantum.tests.unit.extensions
+from quantum.tests.unit import testlib_api
 from quantum import wsgi
 
-LOG = logging.getLogger('quantum.tests.test_extensions')
+
+LOG = logging.getLogger(__name__)
 
 ROOTDIR = os.path.dirname(os.path.dirname(__file__))
 ETCDIR = os.path.join(ROOTDIR, 'etc')
@@ -59,13 +50,13 @@ class ExtensionsTestApp(wsgi.Router):
 
     def __init__(self, options={}):
         mapper = routes.Mapper()
-        controller = StubBaseAppController()
+        controller = ext_stubs.StubBaseAppController()
         mapper.resource("dummy_resource", "/dummy_resources",
                         controller=controller)
         super(ExtensionsTestApp, self).__init__(mapper)
 
 
-class FakePluginWithExtension(QuantumDbPluginV2):
+class FakePluginWithExtension(db_base_plugin_v2.QuantumDbPluginV2):
     """A fake plugin used only for extension testing in this file."""
 
     supported_extension_aliases = ["FOXNSOX"]
@@ -74,7 +65,7 @@ class FakePluginWithExtension(QuantumDbPluginV2):
         self._log("method_to_support_foxnsox_extension", context)
 
 
-class ResourceExtensionTest(unittest.TestCase):
+class ResourceExtensionTest(base.BaseTestCase):
 
     class ResourceExtensionController(wsgi.Controller):
 
@@ -93,6 +84,22 @@ class ResourceExtensionTest(unittest.TestCase):
         def custom_collection_action(self, request, **kwargs):
             return {'collection': 'value'}
 
+    class DummySvcPlugin(wsgi.Controller):
+            def get_plugin_type(self):
+                return constants.DUMMY
+
+            def index(self, request, **kwargs):
+                return "resource index"
+
+            def custom_member_action(self, request, **kwargs):
+                return {'member_action': 'value'}
+
+            def collection_action(self, request, **kwargs):
+                return {'collection': 'value'}
+
+            def show(self, request, id):
+                return {'data': {'id': id}}
+
     def test_exceptions_notimplemented(self):
         controller = self.ResourceExtensionController()
         member = {'notimplemented_function': "GET"}
@@ -102,13 +109,13 @@ class ResourceExtensionTest(unittest.TestCase):
 
         # Ideally we would check for a 501 code here but webtest doesn't take
         # anything that is below 200 or above 400 so we can't actually check
-        # it.  It thows AppError instead.
+        # it.  It throws webtest.AppError instead.
         try:
             response = (
                 test_app.get("/tweedles/some_id/notimplemented_function"))
             # Shouldn't be reached
             self.assertTrue(False)
-        except AppError:
+        except webtest.AppError:
             pass
 
     def test_resource_can_be_added_as_extension(self):
@@ -122,6 +129,20 @@ class ResourceExtensionTest(unittest.TestCase):
         show_response = test_app.get("/tweedles/25266")
         self.assertEqual({'data': {'id': "25266"}}, show_response.json)
 
+    def test_resource_gets_prefix_of_plugin(self):
+        class DummySvcPlugin(wsgi.Controller):
+            def index(self, request):
+                return ""
+
+            def get_plugin_type(self):
+                return constants.DUMMY
+
+        res_ext = extensions.ResourceExtension(
+            'tweedles', DummySvcPlugin(), path_prefix="/dummy_svc")
+        test_app = _setup_extensions_test_app(SimpleExtensionManager(res_ext))
+        index_response = test_app.get("/dummy_svc/tweedles")
+        self.assertEqual(200, index_response.status_int)
+
     def test_resource_extension_with_custom_member_action(self):
         controller = self.ResourceExtensionController()
         member = {'custom_member_action': "GET"}
@@ -134,6 +155,53 @@ class ResourceExtensionTest(unittest.TestCase):
         self.assertEqual(jsonutils.loads(response.body)['member_action'],
                          "value")
 
+    def test_resource_ext_with_custom_member_action_gets_plugin_prefix(self):
+        controller = self.DummySvcPlugin()
+        member = {'custom_member_action': "GET"}
+        collections = {'collection_action': "GET"}
+        res_ext = extensions.ResourceExtension('tweedles', controller,
+                                               path_prefix="/dummy_svc",
+                                               member_actions=member,
+                                               collection_actions=collections)
+        test_app = _setup_extensions_test_app(SimpleExtensionManager(res_ext))
+
+        response = test_app.get("/dummy_svc/tweedles/1/custom_member_action")
+        self.assertEqual(200, response.status_int)
+        self.assertEqual(jsonutils.loads(response.body)['member_action'],
+                         "value")
+
+        response = test_app.get("/dummy_svc/tweedles/collection_action")
+        self.assertEqual(200, response.status_int)
+        self.assertEqual(jsonutils.loads(response.body)['collection'],
+                         "value")
+
+    def test_plugin_prefix_with_parent_resource(self):
+        controller = self.DummySvcPlugin()
+        parent = dict(member_name="tenant",
+                      collection_name="tenants")
+        member = {'custom_member_action': "GET"}
+        collections = {'collection_action': "GET"}
+        res_ext = extensions.ResourceExtension('tweedles', controller, parent,
+                                               path_prefix="/dummy_svc",
+                                               member_actions=member,
+                                               collection_actions=collections)
+        test_app = _setup_extensions_test_app(SimpleExtensionManager(res_ext))
+
+        index_response = test_app.get("/dummy_svc/tenants/1/tweedles")
+        self.assertEqual(200, index_response.status_int)
+
+        response = test_app.get("/dummy_svc/tenants/1/"
+                                "tweedles/1/custom_member_action")
+        self.assertEqual(200, response.status_int)
+        self.assertEqual(jsonutils.loads(response.body)['member_action'],
+                         "value")
+
+        response = test_app.get("/dummy_svc/tenants/2/"
+                                "tweedles/collection_action")
+        self.assertEqual(200, response.status_int)
+        self.assertEqual(jsonutils.loads(response.body)['collection'],
+                         "value")
+
     def test_resource_extension_for_get_custom_collection_action(self):
         controller = self.ResourceExtensionController()
         collections = {'custom_collection_action': "GET"}
@@ -143,6 +211,7 @@ class ResourceExtensionTest(unittest.TestCase):
 
         response = test_app.get("/tweedles/custom_collection_action")
         self.assertEqual(200, response.status_int)
+        LOG.debug(jsonutils.loads(response.body))
         self.assertEqual(jsonutils.loads(response.body)['collection'], "value")
 
     def test_resource_extension_for_put_custom_collection_action(self):
@@ -208,6 +277,29 @@ class ResourceExtensionTest(unittest.TestCase):
         self.assertEqual(200, response.status_int)
         self.assertEqual(jsonutils.loads(response.body)['collection'], "value")
 
+    def test_resource_extension_with_custom_member_action_and_attr_map(self):
+        controller = self.ResourceExtensionController()
+        member = {'custom_member_action': "GET"}
+        params = {
+            'tweedles': {
+                'id': {'allow_post': False, 'allow_put': False,
+                       'validate': {'type:uuid': None},
+                       'is_visible': True},
+                'name': {'allow_post': True, 'allow_put': True,
+                         'validate': {'type:string': None},
+                         'default': '', 'is_visible': True},
+            }
+        }
+        res_ext = extensions.ResourceExtension('tweedles', controller,
+                                               member_actions=member,
+                                               attr_map=params)
+        test_app = _setup_extensions_test_app(SimpleExtensionManager(res_ext))
+
+        response = test_app.get("/tweedles/some_id/custom_member_action")
+        self.assertEqual(200, response.status_int)
+        self.assertEqual(jsonutils.loads(response.body)['member_action'],
+                         "value")
+
     def test_returns_404_for_non_existent_extension(self):
         test_app = _setup_extensions_test_app(SimpleExtensionManager(None))
 
@@ -216,7 +308,7 @@ class ResourceExtensionTest(unittest.TestCase):
         self.assertEqual(404, response.status_int)
 
 
-class ActionExtensionTest(unittest.TestCase):
+class ActionExtensionTest(base.BaseTestCase):
 
     def setUp(self):
         super(ActionExtensionTest, self).setUp()
@@ -263,7 +355,7 @@ class ActionExtensionTest(unittest.TestCase):
         self.assertEqual(404, response.status_int)
 
 
-class RequestExtensionTest(BaseTest):
+class RequestExtensionTest(base.BaseTestCase):
 
     def test_headers_can_be_extended(self):
         def extend_headers(req, res):
@@ -311,7 +403,7 @@ class RequestExtensionTest(BaseTest):
             res.body = jsonutils.dumps(data)
             return res
 
-        base_app = TestApp(setup_base_app())
+        base_app = webtest.TestApp(setup_base_app())
         response = base_app.put("/dummy_resources/1",
                                 {'uneditable': "new_value"})
         self.assertEqual(response.json['uneditable'], "original_value")
@@ -330,7 +422,7 @@ class RequestExtensionTest(BaseTest):
         return _setup_extensions_test_app(manager)
 
 
-class ExtensionManagerTest(unittest.TestCase):
+class ExtensionManagerTest(base.BaseTestCase):
 
     def test_invalid_extensions_are_not_registered(self):
 
@@ -342,23 +434,24 @@ class ExtensionManagerTest(unittest.TestCase):
             def get_alias(self):
                 return "invalid_extension"
 
-        ext_mgr = ExtensionManager('')
+        ext_mgr = extensions.ExtensionManager('')
         ext_mgr.add_extension(InvalidExtension())
-        ext_mgr.add_extension(StubExtension("valid_extension"))
+        ext_mgr.add_extension(ext_stubs.StubExtension("valid_extension"))
 
         self.assertTrue('valid_extension' in ext_mgr.extensions)
         self.assertFalse('invalid_extension' in ext_mgr.extensions)
 
 
-class PluginAwareExtensionManagerTest(unittest.TestCase):
+class PluginAwareExtensionManagerTest(base.BaseTestCase):
 
     def test_unsupported_extensions_are_not_loaded(self):
-        stub_plugin = StubPlugin(supported_extensions=["e1", "e3"])
-        ext_mgr = PluginAwareExtensionManager('', stub_plugin)
+        stub_plugin = ext_stubs.StubPlugin(supported_extensions=["e1", "e3"])
+        plugin_info = {constants.CORE: stub_plugin}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
 
-        ext_mgr.add_extension(StubExtension("e1"))
-        ext_mgr.add_extension(StubExtension("e2"))
-        ext_mgr.add_extension(StubExtension("e3"))
+        ext_mgr.add_extension(ext_stubs.StubExtension("e1"))
+        ext_mgr.add_extension(ext_stubs.StubExtension("e2"))
+        ext_mgr.add_extension(ext_stubs.StubExtension("e3"))
 
         self.assertTrue("e1" in ext_mgr.extensions)
         self.assertFalse("e2" in ext_mgr.extensions)
@@ -372,23 +465,24 @@ class PluginAwareExtensionManagerTest(unittest.TestCase):
             """
             pass
 
-        ext_mgr = PluginAwareExtensionManager('', ExtensionUnawarePlugin())
-        ext_mgr.add_extension(StubExtension("e1"))
+        plugin_info = {constants.CORE: ExtensionUnawarePlugin()}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
+        ext_mgr.add_extension(ext_stubs.StubExtension("e1"))
 
         self.assertFalse("e1" in ext_mgr.extensions)
 
     def test_extensions_not_loaded_for_plugin_without_expected_interface(self):
 
-        class PluginWithoutExpectedInterface(object):
+        class PluginWithoutExpectedIface(object):
             """
             Plugin does not implement get_foo method as expected by extension
             """
             supported_extension_aliases = ["supported_extension"]
 
-        ext_mgr = PluginAwareExtensionManager('',
-                                              PluginWithoutExpectedInterface())
+        plugin_info = {constants.CORE: PluginWithoutExpectedIface()}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
         ext_mgr.add_extension(
-            ExtensionExpectingPluginInterface("supported_extension"))
+            ext_stubs.ExtensionExpectingPluginInterface("supported_extension"))
 
         self.assertFalse("e1" in ext_mgr.extensions)
 
@@ -402,28 +496,30 @@ class PluginAwareExtensionManagerTest(unittest.TestCase):
 
             def get_foo(self, bar=None):
                 pass
-        ext_mgr = PluginAwareExtensionManager('',
-                                              PluginWithExpectedInterface())
+
+        plugin_info = {constants.CORE: PluginWithExpectedInterface()}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
         ext_mgr.add_extension(
-            ExtensionExpectingPluginInterface("supported_extension"))
+            ext_stubs.ExtensionExpectingPluginInterface("supported_extension"))
 
         self.assertTrue("supported_extension" in ext_mgr.extensions)
 
     def test_extensions_expecting_quantum_plugin_interface_are_loaded(self):
-        class ExtensionForQuamtumPluginInterface(StubExtension):
+        class ExtensionForQuamtumPluginInterface(ext_stubs.StubExtension):
             """
             This Extension does not implement get_plugin_interface method.
             This will work with any plugin implementing QuantumPluginBase
             """
             pass
-        stub_plugin = StubPlugin(supported_extensions=["e1"])
-        ext_mgr = PluginAwareExtensionManager('', stub_plugin)
+        stub_plugin = ext_stubs.StubPlugin(supported_extensions=["e1"])
+        plugin_info = {constants.CORE: stub_plugin}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
         ext_mgr.add_extension(ExtensionForQuamtumPluginInterface("e1"))
 
         self.assertTrue("e1" in ext_mgr.extensions)
 
     def test_extensions_without_need_for__plugin_interface_are_loaded(self):
-        class ExtensionWithNoNeedForPluginInterface(StubExtension):
+        class ExtensionWithNoNeedForPluginInterface(ext_stubs.StubExtension):
             """
             This Extension does not need any plugin interface.
             This will work with any plugin implementing QuantumPluginBase
@@ -431,38 +527,58 @@ class PluginAwareExtensionManagerTest(unittest.TestCase):
             def get_plugin_interface(self):
                 return None
 
-        stub_plugin = StubPlugin(supported_extensions=["e1"])
-        ext_mgr = PluginAwareExtensionManager('', stub_plugin)
+        stub_plugin = ext_stubs.StubPlugin(supported_extensions=["e1"])
+        plugin_info = {constants.CORE: stub_plugin}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
         ext_mgr.add_extension(ExtensionWithNoNeedForPluginInterface("e1"))
 
         self.assertTrue("e1" in ext_mgr.extensions)
 
+    def test_extension_loaded_for_non_core_plugin(self):
+        class NonCorePluginExtenstion(ext_stubs.StubExtension):
+            def get_plugin_interface(self):
+                return None
 
-class ExtensionControllerTest(unittest.TestCase):
+        stub_plugin = ext_stubs.StubPlugin(supported_extensions=["e1"])
+        plugin_info = {constants.DUMMY: stub_plugin}
+        ext_mgr = extensions.PluginAwareExtensionManager('', plugin_info)
+        ext_mgr.add_extension(NonCorePluginExtenstion("e1"))
+
+        self.assertTrue("e1" in ext_mgr.extensions)
+
+
+class ExtensionControllerTest(testlib_api.WebTestCase):
 
     def setUp(self):
         super(ExtensionControllerTest, self).setUp()
         self.test_app = _setup_extensions_test_app()
 
     def test_index_gets_all_registerd_extensions(self):
-        response = self.test_app.get("/extensions")
-        foxnsox = response.json["extensions"][0]
+        response = self.test_app.get("/extensions." + self.fmt)
+        res_body = self.deserialize(response)
+        foxnsox = res_body["extensions"][0]
 
         self.assertEqual(foxnsox["alias"], "FOXNSOX")
         self.assertEqual(foxnsox["namespace"],
                          "http://www.fox.in.socks/api/ext/pie/v1.0")
 
     def test_extension_can_be_accessed_by_alias(self):
-        foxnsox_extension = self.test_app.get("/extensions/FOXNSOX").json
+        response = self.test_app.get("/extensions/FOXNSOX." + self.fmt)
+        foxnsox_extension = self.deserialize(response)
         foxnsox_extension = foxnsox_extension['extension']
         self.assertEqual(foxnsox_extension["alias"], "FOXNSOX")
         self.assertEqual(foxnsox_extension["namespace"],
                          "http://www.fox.in.socks/api/ext/pie/v1.0")
 
     def test_show_returns_not_found_for_non_existent_extension(self):
-        response = self.test_app.get("/extensions/non_existent", status="*")
+        response = self.test_app.get("/extensions/non_existent" + self.fmt,
+                                     status="*")
 
         self.assertEqual(response.status_int, 404)
+
+
+class ExtensionControllerTestXML(ExtensionControllerTest):
+    fmt = 'xml'
 
 
 def app_factory(global_conf, **local_conf):
@@ -481,18 +597,18 @@ def setup_base_app():
 
 def setup_extensions_middleware(extension_manager=None):
     extension_manager = (extension_manager or
-                         PluginAwareExtensionManager(
+                         extensions.PluginAwareExtensionManager(
                              extensions_path,
-                             FakePluginWithExtension()))
+                             {constants.CORE: FakePluginWithExtension()}))
     config_file = 'quantum.conf.test'
     args = ['--config-file', etcdir(config_file)]
     config.parse(args=args)
     app = config.load_paste_app('extensions_test_app')
-    return ExtensionMiddleware(app, ext_mgr=extension_manager)
+    return extensions.ExtensionMiddleware(app, ext_mgr=extension_manager)
 
 
 def _setup_extensions_test_app(extension_manager=None):
-    return TestApp(setup_extensions_middleware(extension_manager))
+    return webtest.TestApp(setup_extensions_middleware(extension_manager))
 
 
 class SimpleExtensionManager(object):

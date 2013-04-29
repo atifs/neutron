@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,23 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
+from oslo.config import cfg
 from sqlalchemy.orm import exc
 
-from quantum import context as quantum_context
-from quantum import manager
 from quantum.api.v2 import attributes
-from quantum.openstack.common import context
+from quantum.common import constants
+from quantum.common import utils
+from quantum import manager
+from quantum.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
-
-
-def augment_context(context):
-    """Augments RPC with additional attributes, so that plugin calls work."""
-    return quantum_context.Context(context.user, None, is_admin=True,
-                                   roles=['admin'])
 
 
 class DhcpRpcCallbackMixin(object):
@@ -38,18 +32,26 @@ class DhcpRpcCallbackMixin(object):
     def get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active network ids."""
         host = kwargs.get('host')
-        LOG.debug('Network list requested from %s', host)
+        LOG.debug(_('Network list requested from %s'), host)
         plugin = manager.QuantumManager.get_plugin()
-        context = augment_context(context)
-        filters = dict(admin_state_up=[True])
-
-        return [net['id'] for net in
-                plugin.get_networks(context, filters=filters)]
+        if utils.is_extension_supported(
+            plugin, constants.AGENT_SCHEDULER_EXT_ALIAS):
+            if cfg.CONF.network_auto_schedule:
+                plugin.auto_schedule_networks(context, host)
+            nets = plugin.list_active_networks_on_active_dhcp_agent(
+                context, host)
+        else:
+            filters = dict(admin_state_up=[True])
+            nets = plugin.get_networks(context, filters=filters)
+        return [net['id'] for net in nets]
 
     def get_network_info(self, context, **kwargs):
         """Retrieve and return a extended information about a network."""
         network_id = kwargs.get('network_id')
-        context = augment_context(context)
+        host = kwargs.get('host')
+        LOG.debug(_('Network %(network_id)s requested from '
+                    '%(host)s'), {'network_id': network_id,
+                                  'host': host})
         plugin = manager.QuantumManager.get_plugin()
         network = plugin.get_network(context, network_id)
 
@@ -69,12 +71,13 @@ class DhcpRpcCallbackMixin(object):
         host = kwargs.get('host')
         network_id = kwargs.get('network_id')
         device_id = kwargs.get('device_id')
-         # There could be more than one dhcp server per network, so create
-         # a device id that combines host and network ids
+        # There could be more than one dhcp server per network, so create
+        # a device id that combines host and network ids
 
-        LOG.debug('Port %s for %s requested from %s', device_id, network_id,
-                  host)
-        context = augment_context(context)
+        LOG.debug(_('Port %(device_id)s for %(network_id)s requested from '
+                    '%(host)s'), {'device_id': device_id,
+                                  'network_id': network_id,
+                                  'host': host})
         plugin = manager.QuantumManager.get_plugin()
         retval = None
 
@@ -105,8 +108,8 @@ class DhcpRpcCallbackMixin(object):
 
         if retval is None:
             # No previous port exists, so create a new one.
-            LOG.debug('DHCP port %s on network %s does not exist on %s',
-                      device_id, network_id, host)
+            LOG.debug(_('DHCP port %(device_id)s on network %(network_id)s '
+                        'does not exist on %(host)s'), locals())
 
             network = plugin.get_network(context, network_id)
 
@@ -135,9 +138,8 @@ class DhcpRpcCallbackMixin(object):
         network_id = kwargs.get('network_id')
         device_id = kwargs.get('device_id')
 
-        LOG.debug('DHCP port deletion for %s d request from %s', network_id,
-                  host)
-        context = augment_context(context)
+        LOG.debug(_('DHCP port deletion for %(network_id)s request from '
+                    '%(host)s'), locals())
         plugin = manager.QuantumManager.get_plugin()
         filters = dict(network_id=[network_id], device_id=[device_id])
         ports = plugin.get_ports(context, filters=filters)
@@ -152,11 +154,8 @@ class DhcpRpcCallbackMixin(object):
         device_id = kwargs.get('device_id')
         subnet_id = kwargs.get('subnet_id')
 
-        LOG.debug('DHCP port remove fixed_ip for %s d request from %s',
-                  subnet_id,
-                  host)
-
-        context = augment_context(context)
+        LOG.debug(_('DHCP port remove fixed_ip for %(subnet_id)s request '
+                    'from %(host)s'), locals())
         plugin = manager.QuantumManager.get_plugin()
         filters = dict(network_id=[network_id], device_id=[device_id])
         ports = plugin.get_ports(context, filters=filters)
@@ -178,10 +177,8 @@ class DhcpRpcCallbackMixin(object):
         ip_address = kwargs.get('ip_address')
         lease_remaining = kwargs.get('lease_remaining')
 
-        LOG.debug('Updating lease expiration for %s on network %s from %s.',
-                  ip_address, network_id, host)
-
-        context = augment_context(context)
+        LOG.debug(_('Updating lease expiration for %(ip_address)s on network '
+                    '%(network_id)s from %(host)s.'), locals())
         plugin = manager.QuantumManager.get_plugin()
 
         plugin.update_fixed_ip_lease_expiration(context, network_id,

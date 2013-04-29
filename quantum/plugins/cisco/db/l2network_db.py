@@ -18,24 +18,25 @@
 from sqlalchemy.orm import exc
 
 from quantum.common import exceptions as q_exc
+from quantum.openstack.common import log as logging
 from quantum.plugins.cisco.common import cisco_exceptions as c_exc
 from quantum.plugins.cisco.db import l2network_models
 from quantum.plugins.cisco import l2network_plugin_configuration as conf
 
-import logging as LOG
 import quantum.plugins.cisco.db.api as db
 
 
+LOG = logging.getLogger(__name__)
+
+
 def initialize():
-    'Establish database connection and load models'
-    options = {"sql_connection": "mysql://%s:%s@%s/%s" % (conf.DB_USER,
-               conf.DB_PASS, conf.DB_HOST, conf.DB_NAME)}
-    db.configure_db(options)
+    """Establish database connection and load models"""
+    db.configure_db()
 
 
 def create_vlanids():
     """Prepopulates the vlan_bindings table"""
-    LOG.debug("create_vlanids() called")
+    LOG.debug(_("create_vlanids() called"))
     session = db.get_session()
     try:
         vlanid = session.query(l2network_models.VlanID).one()
@@ -54,7 +55,7 @@ def create_vlanids():
 
 def get_all_vlanids():
     """Gets all the vlanids"""
-    LOG.debug("get_all_vlanids() called")
+    LOG.debug(_("get_all_vlanids() called"))
     session = db.get_session()
     try:
         vlanids = session.query(l2network_models.VlanID).all()
@@ -65,7 +66,7 @@ def get_all_vlanids():
 
 def is_vlanid_used(vlan_id):
     """Checks if a vlanid is in use"""
-    LOG.debug("is_vlanid_used() called")
+    LOG.debug(_("is_vlanid_used() called"))
     session = db.get_session()
     try:
         vlanid = (session.query(l2network_models.VlanID).
@@ -77,7 +78,7 @@ def is_vlanid_used(vlan_id):
 
 def release_vlanid(vlan_id):
     """Sets the vlanid state to be unused"""
-    LOG.debug("release_vlanid() called")
+    LOG.debug(_("release_vlanid() called"))
     session = db.get_session()
     try:
         vlanid = (session.query(l2network_models.VlanID).
@@ -93,7 +94,7 @@ def release_vlanid(vlan_id):
 
 def delete_vlanid(vlan_id):
     """Deletes a vlanid entry from db"""
-    LOG.debug("delete_vlanid() called")
+    LOG.debug(_("delete_vlanid() called"))
     session = db.get_session()
     try:
         vlanid = (session.query(l2network_models.VlanID).
@@ -107,7 +108,7 @@ def delete_vlanid(vlan_id):
 
 def reserve_vlanid():
     """Reserves the first unused vlanid"""
-    LOG.debug("reserve_vlanid() called")
+    LOG.debug(_("reserve_vlanid() called"))
     session = db.get_session()
     try:
         rvlan = (session.query(l2network_models.VlanID).
@@ -126,7 +127,7 @@ def reserve_vlanid():
 
 def get_all_vlanids_used():
     """Gets all the vlanids used"""
-    LOG.debug("get_all_vlanids() called")
+    LOG.debug(_("get_all_vlanids() called"))
     session = db.get_session()
     try:
         vlanids = (session.query(l2network_models.VlanID).
@@ -138,7 +139,7 @@ def get_all_vlanids_used():
 
 def get_all_vlan_bindings():
     """Lists all the vlan to network associations"""
-    LOG.debug("get_all_vlan_bindings() called")
+    LOG.debug(_("get_all_vlan_bindings() called"))
     session = db.get_session()
     try:
         bindings = session.query(l2network_models.VlanBinding).all()
@@ -149,7 +150,7 @@ def get_all_vlan_bindings():
 
 def get_vlan_binding(netid):
     """Lists the vlan given a network_id"""
-    LOG.debug("get_vlan_binding() called")
+    LOG.debug(_("get_vlan_binding() called"))
     session = db.get_session()
     try:
         binding = (session.query(l2network_models.VlanBinding).
@@ -161,7 +162,7 @@ def get_vlan_binding(netid):
 
 def add_vlan_binding(vlanid, vlanname, netid):
     """Adds a vlan to network association"""
-    LOG.debug("add_vlan_binding() called")
+    LOG.debug(_("add_vlan_binding() called"))
     session = db.get_session()
     try:
         binding = (session.query(l2network_models.VlanBinding).
@@ -177,7 +178,7 @@ def add_vlan_binding(vlanid, vlanname, netid):
 
 def remove_vlan_binding(netid):
     """Removes a vlan to network association"""
-    LOG.debug("remove_vlan_binding() called")
+    LOG.debug(_("remove_vlan_binding() called"))
     session = db.get_session()
     try:
         binding = (session.query(l2network_models.VlanBinding).
@@ -191,7 +192,7 @@ def remove_vlan_binding(netid):
 
 def update_vlan_binding(netid, newvlanid=None, newvlanname=None):
     """Updates a vlan to network association"""
-    LOG.debug("update_vlan_binding() called")
+    LOG.debug(_("update_vlan_binding() called"))
     session = db.get_session()
     try:
         binding = (session.query(l2network_models.VlanBinding).
@@ -207,162 +208,9 @@ def update_vlan_binding(netid, newvlanid=None, newvlanname=None):
         raise q_exc.NetworkNotFound(net_id=netid)
 
 
-def get_all_portprofiles():
-    """Lists all the port profiles"""
-    LOG.debug("get_all_portprofiles() called")
-    session = db.get_session()
-    try:
-        pps = session.query(l2network_models.PortProfile).all()
-        return pps
-    except exc.NoResultFound:
-        return []
-
-
-def get_portprofile(tenantid, ppid):
-    """Lists a port profile"""
-    LOG.debug("get_portprofile() called")
-    session = db.get_session()
-    try:
-        pp = (session.query(l2network_models.PortProfile).
-              filter_by(uuid=ppid).one())
-        return pp
-    except exc.NoResultFound:
-        raise c_exc.PortProfileNotFound(tenant_id=tenantid,
-                                        portprofile_id=ppid)
-
-
-def add_portprofile(tenantid, ppname, vlanid, qos):
-    """Adds a port profile"""
-    LOG.debug("add_portprofile() called")
-    session = db.get_session()
-    try:
-        pp = (session.query(l2network_models.PortProfile).
-              filter_by(name=ppname).one())
-        raise c_exc.PortProfileAlreadyExists(tenant_id=tenantid,
-                                             pp_name=ppname)
-    except exc.NoResultFound:
-        pp = l2network_models.PortProfile(ppname, vlanid, qos)
-        session.add(pp)
-        session.flush()
-        return pp
-
-
-def remove_portprofile(tenantid, ppid):
-    """Removes a port profile"""
-    LOG.debug("remove_portprofile() called")
-    session = db.get_session()
-    try:
-        pp = (session.query(l2network_models.PortProfile).
-              filter_by(uuid=ppid).one())
-        session.delete(pp)
-        session.flush()
-        return pp
-    except exc.NoResultFound:
-        pass
-
-
-def update_portprofile(tenantid, ppid, newppname=None, newvlanid=None,
-                       newqos=None):
-    """Updates port profile"""
-    LOG.debug("update_portprofile() called")
-    session = db.get_session()
-    try:
-        pp = (session.query(l2network_models.PortProfile).
-              filter_by(uuid=ppid).one())
-        if newppname:
-            pp["name"] = newppname
-        if newvlanid:
-            pp["vlan_id"] = newvlanid
-        if newqos:
-            pp["qos"] = newqos
-        session.merge(pp)
-        session.flush()
-        return pp
-    except exc.NoResultFound:
-        raise c_exc.PortProfileNotFound(tenant_id=tenantid,
-                                        portprofile_id=ppid)
-
-
-def get_all_pp_bindings():
-    """Lists all the port profiles"""
-    LOG.debug("get_all_pp_bindings() called")
-    session = db.get_session()
-    try:
-        bindings = session.query(l2network_models.PortProfileBinding).all()
-        return bindings
-    except exc.NoResultFound:
-        return []
-
-
-def get_pp_binding(tenantid, ppid):
-    """Lists a port profile binding"""
-    LOG.debug("get_pp_binding() called")
-    session = db.get_session()
-    try:
-        binding = (session.query(l2network_models.PortProfileBinding).
-                   filter_by(portprofile_id=ppid).one())
-        return binding
-    except exc.NoResultFound:
-        return []
-
-
-def add_pp_binding(tenantid, portid, ppid, default):
-    """Adds a port profile binding"""
-    LOG.debug("add_pp_binding() called")
-    session = db.get_session()
-    try:
-        binding = (session.query(l2network_models.PortProfileBinding).
-                   filter_by(portprofile_id=ppid).one())
-        raise c_exc.PortProfileBindingAlreadyExists(pp_id=ppid,
-                                                    port_id=portid)
-    except exc.NoResultFound:
-        binding = l2network_models.PortProfileBinding(tenantid, portid,
-                                                      ppid, default)
-        session.add(binding)
-        session.flush()
-        return binding
-
-
-def remove_pp_binding(tenantid, portid, ppid):
-    """Removes a port profile binding"""
-    LOG.debug("remove_pp_binding() called")
-    session = db.get_session()
-    try:
-        binding = (session.query(l2network_models.PortProfileBinding).
-                   filter_by(portprofile_id=ppid).filter_by(port_id=portid).
-                   one())
-        session.delete(binding)
-        session.flush()
-        return binding
-    except exc.NoResultFound:
-        pass
-
-
-def update_pp_binding(tenantid, ppid, newtenantid=None,
-                      newportid=None, newdefault=None):
-    """Updates port profile binding"""
-    LOG.debug("update_pp_binding() called")
-    session = db.get_session()
-    try:
-        binding = (session.query(l2network_models.PortProfileBinding).
-                   filter_by(portprofile_id=ppid).one())
-        if newtenantid:
-            binding["tenant_id"] = newtenantid
-        if newportid:
-            binding["port_id"] = newportid
-        if newdefault:
-            binding["default"] = newdefault
-        session.merge(binding)
-        session.flush()
-        return binding
-    except exc.NoResultFound:
-        raise c_exc.PortProfileNotFound(tenant_id=tenantid,
-                                        portprofile_id=ppid)
-
-
 def get_all_qoss(tenant_id):
     """Lists all the qos to tenant associations"""
-    LOG.debug("get_all_qoss() called")
+    LOG.debug(_("get_all_qoss() called"))
     session = db.get_session()
     try:
         qoss = (session.query(l2network_models.QoS).
@@ -374,7 +222,7 @@ def get_all_qoss(tenant_id):
 
 def get_qos(tenant_id, qos_id):
     """Lists the qos given a tenant_id and qos_id"""
-    LOG.debug("get_qos() called")
+    LOG.debug(_("get_qos() called"))
     session = db.get_session()
     try:
         qos = (session.query(l2network_models.QoS).
@@ -388,7 +236,7 @@ def get_qos(tenant_id, qos_id):
 
 def add_qos(tenant_id, qos_name, qos_desc):
     """Adds a qos to tenant association"""
-    LOG.debug("add_qos() called")
+    LOG.debug(_("add_qos() called"))
     session = db.get_session()
     try:
         qos = (session.query(l2network_models.QoS).

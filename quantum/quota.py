@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-#    Copyright 2011 OpenStack LLC
+#    Copyright 2011 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -16,35 +16,38 @@
 
 """Quotas for instances, volumes, and floating ips."""
 
-import logging
+from oslo.config import cfg
+import webob
 
 from quantum.common import exceptions
-from quantum.openstack.common import cfg
 from quantum.openstack.common import importutils
+from quantum.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 quota_opts = [
     cfg.ListOpt('quota_items',
                 default=['network', 'subnet', 'port'],
-                help='resource name(s) that are supported in quota features'),
+                help=_('Resource name(s) that are supported in quota '
+                       'features')),
     cfg.IntOpt('default_quota',
                default=-1,
-               help='default number of resource allowed per tenant, '
-               'minus for unlimited'),
+               help=_('Default number of resource allowed per tenant, '
+                      'minus for unlimited')),
     cfg.IntOpt('quota_network',
                default=10,
-               help='number of networks allowed per tenant,'
-               'minus for unlimited'),
+               help=_('Number of networks allowed per tenant,'
+                      'minus for unlimited')),
     cfg.IntOpt('quota_subnet',
                default=10,
-               help='number of subnets allowed per tenant, '
-               'minus for unlimited'),
+               help=_('Number of subnets allowed per tenant, '
+                      'minus for unlimited')),
     cfg.IntOpt('quota_port',
                default=50,
-               help='number of ports allowed per tenant, minus for unlimited'),
+               help=_('number of ports allowed per tenant, minus for '
+                      'unlimited')),
     cfg.StrOpt('quota_driver',
                default='quantum.quota.ConfDriver',
-               help='default driver to use for quota checks'),
+               help=_('Default driver to use for quota checks')),
 ]
 # Register the configuration options
 cfg.CONF.register_opts(quota_opts, 'QUOTAS')
@@ -122,6 +125,26 @@ class ConfDriver(object):
             raise exceptions.OverQuota(overs=sorted(overs), quotas=quotas,
                                        usages={})
 
+    @staticmethod
+    def get_tenant_quotas(context, resources, tenant_id):
+        quotas = {}
+        sub_resources = dict((k, v) for k, v in resources.items())
+        for resource in sub_resources.values():
+            quotas[resource.name] = resource.default
+        return quotas
+
+    @staticmethod
+    def get_all_quotas(context, resources):
+        return []
+
+    @staticmethod
+    def delete_tenant_quota(context, tenant_id):
+        raise webob.exc.HTTPForbidden()
+
+    @staticmethod
+    def update_quota_limit(context, tenant_id, resource, limit):
+        raise webob.exc.HTTPForbidden()
+
 
 class BaseResource(object):
     """Describe a single resource for quota checking."""
@@ -140,10 +163,9 @@ class BaseResource(object):
     @property
     def default(self):
         """Return the default value of the quota."""
-        if hasattr(cfg.CONF.QUOTAS, self.flag):
-            return cfg.CONF.QUOTAS[self.flag]
-        else:
-            return cfg.CONF.QUOTAS.default_quota
+        return getattr(cfg.CONF.QUOTAS,
+                       self.flag,
+                       cfg.CONF.QUOTAS.default_quota)
 
 
 class CountableResource(BaseResource):
@@ -198,7 +220,7 @@ class QuotaEngine(object):
     def register_resource(self, resource):
         """Register a resource."""
         if resource.name in self._resources:
-            LOG.warn('%s is already registered.', resource.name)
+            LOG.warn(_('%s is already registered.'), resource.name)
             return
         self._resources[resource.name] = resource
 
@@ -267,14 +289,27 @@ QUOTAS = QuotaEngine()
 
 
 def _count_resource(context, plugin, resources, tenant_id):
-    obj_getter = getattr(plugin, "get_%s" % resources)
-    obj_list = obj_getter(context, filters={'tenant_id': [tenant_id]})
-    return len(obj_list) if obj_list else 0
+    count_getter_name = "get_%s_count" % resources
+
+    # Some plugins support a count method for particular resources,
+    # using a DB's optimized counting features. We try to use that one
+    # if present. Otherwise just use regular getter to retrieve all objects
+    # and count in python, allowing older plugins to still be supported
+    try:
+        obj_count_getter = getattr(plugin, count_getter_name)
+        return obj_count_getter(context, filters={'tenant_id': [tenant_id]})
+    except (exceptions.NotImplementedError, AttributeError):
+        obj_getter = getattr(plugin, "get_%s" % resources)
+        obj_list = obj_getter(context, filters={'tenant_id': [tenant_id]})
+        return len(obj_list) if obj_list else 0
 
 
-resources = []
-for resource_item in cfg.CONF.QUOTAS.quota_items:
-    resources.append(CountableResource(resource_item, _count_resource,
-                                       'quota_' + resource_item))
+def register_resources_from_config():
+    resources = []
+    for resource_item in cfg.CONF.QUOTAS.quota_items:
+        resources.append(CountableResource(resource_item, _count_resource,
+                                           'quota_' + resource_item))
+    QUOTAS.register_resources(resources)
 
-QUOTAS.register_resources(resources)
+
+register_resources_from_config()

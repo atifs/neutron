@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 NETWORK = 'network'
 SUBNET = 'subnet'
 PORT = 'port'
+SECURITY_GROUP = 'security_group'
 
 CREATE = 'create'
 DELETE = 'delete'
@@ -24,6 +25,11 @@ UPDATE = 'update'
 AGENT = 'q-agent-notifier'
 PLUGIN = 'q-plugin'
 DHCP = 'q-dhcp-notifer'
+LOADBALANCER_PLUGIN = 'q-loadbalancer-plugin'
+
+L3_AGENT = 'l3_agent'
+DHCP_AGENT = 'dhcp_agent'
+LOADBALANCER_AGENT = 'loadbalancer_agent'
 
 
 def get_topic_name(prefix, table, operation):

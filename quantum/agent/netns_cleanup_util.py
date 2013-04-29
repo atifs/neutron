@@ -1,9 +1,26 @@
-import logging
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright (c) 2012 OpenStack Foundation.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 import re
-import sys
 
 import eventlet
+from oslo.config import cfg
 
+from quantum.agent.common import config as agent_config
 from quantum.agent import dhcp_agent
 from quantum.agent import l3_agent
 from quantum.agent.linux import dhcp
@@ -11,8 +28,9 @@ from quantum.agent.linux import ip_lib
 from quantum.agent.linux import ovs_lib
 from quantum.api.v2 import attributes
 from quantum.common import config
-from quantum.openstack.common import cfg
 from quantum.openstack.common import importutils
+from quantum.openstack.common import log as logging
+
 
 LOG = logging.getLogger(__name__)
 NS_MANGLING_PATTERN = ('(%s|%s)' % (dhcp_agent.NS_PREFIX, l3_agent.NS_PREFIX) +
@@ -39,26 +57,24 @@ def setup_conf():
     """
 
     opts = [
-        cfg.StrOpt('root_helper', default='sudo'),
         cfg.StrOpt('dhcp_driver',
                    default='quantum.agent.linux.dhcp.Dnsmasq',
-                   help="The driver used to manage the DHCP server."),
-        cfg.StrOpt('state_path',
-                   default='.',
-                   help='Top-level directory for maintaining dhcp state'),
+                   help=_("The driver used to manage the DHCP server.")),
         cfg.BoolOpt('force',
                     default=False,
-                    help='Delete the namespace by removing all devices.'),
+                    help=_('Delete the namespace by removing all devices.')),
     ]
-    conf = cfg.CommonConfigOpts()
+
+    conf = cfg.CONF
     conf.register_opts(opts)
+    agent_config.register_root_helper(conf)
     conf.register_opts(dhcp.OPTS)
-    config.setup_logging(conf)
     return conf
 
 
 def kill_dhcp(conf, namespace):
     """Disable DHCP for a network if DHCP is still active."""
+    root_helper = agent_config.get_root_helper(conf)
     network_id = namespace.replace(dhcp_agent.NS_PREFIX, '')
 
     null_delegate = NullDelegate()
@@ -66,7 +82,7 @@ def kill_dhcp(conf, namespace):
         conf.dhcp_driver,
         conf,
         FakeNetwork(network_id),
-        conf.root_helper,
+        root_helper,
         null_delegate)
 
     if dhcp_driver.active:
@@ -84,7 +100,8 @@ def eligible_for_deletion(conf, namespace, force=False):
     if not re.match(NS_MANGLING_PATTERN, namespace):
         return False
 
-    ip = ip_lib.IPWrapper(conf.root_helper, namespace)
+    root_helper = agent_config.get_root_helper(conf)
+    ip = ip_lib.IPWrapper(root_helper, namespace)
     return force or ip.namespace_is_empty()
 
 
@@ -92,15 +109,14 @@ def unplug_device(conf, device):
     try:
         device.link.delete()
     except RuntimeError:
+        root_helper = agent_config.get_root_helper(conf)
         # Maybe the device is OVS port, so try to delete
-        bridge_name = ovs_lib.get_bridge_for_iface(conf.root_helper,
-                                                   device.name)
+        bridge_name = ovs_lib.get_bridge_for_iface(root_helper, device.name)
         if bridge_name:
-            bridge = ovs_lib.OVSBridge(bridge_name,
-                                       conf.root_helper)
+            bridge = ovs_lib.OVSBridge(bridge_name, root_helper)
             bridge.delete_port(device.name)
         else:
-            LOG.debug(_('Unable to find bridge for device: %s') % device.name)
+            LOG.debug(_('Unable to find bridge for device: %s'), device.name)
 
 
 def destroy_namespace(conf, namespace, force=False):
@@ -111,7 +127,8 @@ def destroy_namespace(conf, namespace, force=False):
     """
 
     try:
-        ip = ip_lib.IPWrapper(conf.root_helper, namespace)
+        root_helper = agent_config.get_root_helper(conf)
+        ip = ip_lib.IPWrapper(root_helper, namespace)
 
         if force:
             kill_dhcp(conf, namespace)
@@ -123,7 +140,7 @@ def destroy_namespace(conf, namespace, force=False):
 
         ip.garbage_collect_namespace()
     except Exception, e:
-        LOG.exception(_('Error unable to destroy namespace: %s') % namespace)
+        LOG.exception(_('Error unable to destroy namespace: %s'), namespace)
 
 
 def main():
@@ -146,11 +163,13 @@ def main():
     eventlet.monkey_patch()
 
     conf = setup_conf()
-    conf(sys.argv)
+    conf()
+    config.setup_logging(conf)
 
+    root_helper = agent_config.get_root_helper(conf)
     # Identify namespaces that are candidates for deletion.
     candidates = [ns for ns in
-                  ip_lib.IPWrapper.get_namespaces(conf.root_helper)
+                  ip_lib.IPWrapper.get_namespaces(root_helper)
                   if eligible_for_deletion(conf, ns, conf.force)]
 
     if candidates:

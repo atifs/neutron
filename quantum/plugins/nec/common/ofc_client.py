@@ -17,9 +17,9 @@
 
 import httplib
 import json
-import logging
 import socket
 
+from quantum.openstack.common import log as logging
 from quantum.plugins.nec.common import exceptions as nexc
 
 
@@ -54,8 +54,10 @@ class OFCClient(object):
             return httplib.HTTPConnection
 
     def do_request(self, method, action, body=None):
-        LOG.debug("Client request: %s %s [%s]" % (method, action, str(body)))
-
+        LOG.debug(_("Client request: %(host)s:%(port)s "
+                    "%(method)s %(action)s [%(body)s]"),
+                  {'host': self.host, 'port': self.port,
+                   'method': method, 'action': action, 'body': body})
         if type(body) is dict:
             body = json.dumps(body)
         try:
@@ -71,7 +73,9 @@ class OFCClient(object):
             conn.request(method, action, body, headers)
             res = conn.getresponse()
             data = res.read()
-            LOG.debug("OFC returns [%s:%s]" % (str(res.status), data))
+            LOG.debug(_("OFC returns [%(status)s:%(data)s]"),
+                      {'status': res.status,
+                       'data': data})
             if res.status in (httplib.OK,
                               httplib.CREATED,
                               httplib.ACCEPTED,
@@ -82,7 +86,7 @@ class OFCClient(object):
                 reason = _("An operation on OFC is failed.")
                 raise nexc.OFCException(reason=reason)
         except (socket.error, IOError), e:
-            reason = _("Failed to connect OFC : %s" % str(e))
+            reason = _("Failed to connect OFC : %s") % str(e)
             LOG.error(reason)
             raise nexc.OFCException(reason=reason)
 

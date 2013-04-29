@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2012 OpenStack LLC
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -17,15 +17,14 @@
 
 import os
 import socket
-import tempfile
-import unittest2 as unittest
 
 import mock
+from oslo.config import cfg
 
-from quantum.agent.linux import dhcp
 from quantum.agent.common import config
-from quantum.openstack.common import cfg
+from quantum.agent.linux import dhcp
 from quantum.openstack.common import jsonutils
+from quantum.tests import base
 
 
 class FakeIPAllocation:
@@ -135,25 +134,14 @@ class FakeV4NoGatewayNetwork:
     ports = [FakePort1()]
 
 
-class TestDhcpBase(unittest.TestCase):
+class TestDhcpBase(base.BaseTestCase):
+    def test_existing_dhcp_networks_abstract_error(self):
+        self.assertRaises(NotImplementedError,
+                          dhcp.DhcpBase.existing_dhcp_networks,
+                          None, None)
+
     def test_base_abc_error(self):
         self.assertRaises(TypeError, dhcp.DhcpBase, None)
-
-    def test_replace_file(self):
-        # make file to replace
-        with mock.patch('tempfile.NamedTemporaryFile') as ntf:
-            ntf.return_value.name = '/baz'
-            with mock.patch('os.chmod') as chmod:
-                with mock.patch('os.rename') as rename:
-                    dhcp.replace_file('/foo', 'bar')
-
-                    expected = [mock.call('w+', dir='/', delete=False),
-                                mock.call().write('bar'),
-                                mock.call().close()]
-
-                    ntf.assert_has_calls(expected)
-                    chmod.assert_called_once_with('/baz', 0644)
-                    rename.assert_called_once_with('/baz', '/foo')
 
     def test_restart(self):
         class SubClass(dhcp.DhcpBase):
@@ -176,7 +164,7 @@ class TestDhcpBase(unittest.TestCase):
 
         c = SubClass()
         c.restart()
-        self.assertEquals(c.called, ['disable True', 'enable'])
+        self.assertEqual(c.called, ['disable True', 'enable'])
 
 
 class LocalChild(dhcp.DhcpLocalProcess):
@@ -196,27 +184,29 @@ class LocalChild(dhcp.DhcpLocalProcess):
         self.called.append('spawn')
 
 
-class TestBase(unittest.TestCase):
+class TestBase(base.BaseTestCase):
     def setUp(self):
+        super(TestBase, self).setUp()
         root = os.path.dirname(os.path.dirname(__file__))
         args = ['--config-file',
                 os.path.join(root, 'etc', 'quantum.conf.test')]
         self.conf = config.setup_conf()
         self.conf.register_opts(dhcp.OPTS)
-        self.conf.register_opt(cfg.StrOpt('dhcp_lease_relay_socket',
-                               default='$state_path/dhcp/lease_relay'))
+        self.conf.register_opt(
+            cfg.StrOpt('dhcp_lease_relay_socket',
+                       default='$state_path/dhcp/lease_relay'))
+        self.conf.register_opt(cfg.BoolOpt('enable_isolated_metadata',
+                                           default=True))
         self.conf(args=args)
         self.conf.set_override('state_path', '')
         self.conf.use_namespaces = True
 
-        self.replace_p = mock.patch('quantum.agent.linux.dhcp.replace_file')
+        self.replace_p = mock.patch('quantum.agent.linux.utils.replace_file')
         self.execute_p = mock.patch('quantum.agent.linux.utils.execute')
+        self.addCleanup(self.execute_p.stop)
         self.safe = self.replace_p.start()
+        self.addCleanup(self.replace_p.stop)
         self.execute = self.execute_p.start()
-
-    def tearDown(self):
-        self.execute_p.stop()
-        self.replace_p.stop()
 
 
 class TestDhcpLocalProcess(TestBase):
@@ -229,6 +219,14 @@ class TestDhcpLocalProcess(TestBase):
             self.assertTrue(lp.active)
             self.execute.assert_called_once_with(['cat', '/proc/4/cmdline'],
                                                  'sudo')
+
+    def test_active_none(self):
+        dummy_cmd_line = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        self.execute.return_value = (dummy_cmd_line, '')
+        with mock.patch.object(LocalChild, 'pid') as pid:
+            pid.__get__ = mock.Mock(return_value=None)
+            lp = LocalChild(self.conf, FakeV4Network())
+            self.assertFalse(lp.active)
 
     def test_active_cmd_mismatch(self):
         dummy_cmd_line = 'bbbbbbbb-bbbb-bbbb-aaaa-aaaaaaaaaaaa'
@@ -383,7 +381,7 @@ class TestDhcpLocalProcess(TestBase):
             self.assertEqual(lp.interface_name, 'tap0')
 
     def test_set_interface_name(self):
-        with mock.patch('quantum.agent.linux.dhcp.replace_file') as replace:
+        with mock.patch('quantum.agent.linux.utils.replace_file') as replace:
             lp = LocalChild(self.conf, FakeDualNetwork())
             with mock.patch.object(lp, 'get_conf_file_name') as conf_file:
                 conf_file.return_value = '/interface'
@@ -418,7 +416,6 @@ class TestDnsmasq(TestBase):
             '--bind-interfaces',
             '--interface=tap0',
             '--except-interface=lo',
-            '--domain=openstacklocal',
             '--pid-file=/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/pid',
             '--dhcp-hostsfile=/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/host',
             '--dhcp-optsfile=/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/opts',
@@ -426,8 +423,7 @@ class TestDnsmasq(TestBase):
              'dnsmasq-lease-update'),
             '--leasefile-ro',
             '--dhcp-range=set:tag0,192.168.0.0,static,120s',
-            '--dhcp-range=set:tag1,fdca:3ba5:a17a:4ba3::,static,120s'
-        ]
+            '--dhcp-range=set:tag1,fdca:3ba5:a17a:4ba3::,static,120s']
         expected.extend(extra_options)
 
         self.execute.return_value = ('', '')
@@ -458,15 +454,21 @@ class TestDnsmasq(TestBase):
                                                      check_exit_code=True)
 
     def test_spawn(self):
-        self._test_spawn([])
+        self._test_spawn(['--conf-file=', '--domain=openstacklocal'])
 
     def test_spawn_cfg_config_file(self):
         self.conf.set_override('dnsmasq_config_file', '/foo')
-        self._test_spawn(['--conf-file=/foo'])
+        self._test_spawn(['--conf-file=/foo', '--domain=openstacklocal'])
+
+    def test_spawn_no_dhcp_domain(self):
+        self.conf.set_override('dhcp_domain', '')
+        self._test_spawn(['--conf-file='])
 
     def test_spawn_cfg_dns_server(self):
         self.conf.set_override('dnsmasq_dns_server', '8.8.8.8')
-        self._test_spawn(['--server=8.8.8.8'])
+        self._test_spawn(['--conf-file=',
+                          '--server=8.8.8.8',
+                          '--domain=openstacklocal'])
 
     def test_output_opts_file(self):
         fake_v6 = 'gdca:3ba5:a17a:4ba3::1'
@@ -500,12 +502,18 @@ tag:tag0,option:router,192.168.0.1""".lstrip()
         self.safe.assert_called_once_with('/foo/opts', expected)
 
     def test_output_opts_file_no_gateway(self):
-        expected = "tag:tag0,option:router"
+        expected = """
+tag:tag0,option:classless-static-route,169.254.169.254/32,192.168.1.1
+tag:tag0,option:router""".lstrip()
 
         with mock.patch.object(dhcp.Dnsmasq, 'get_conf_file_name') as conf_fn:
             conf_fn.return_value = '/foo/opts'
             dm = dhcp.Dnsmasq(self.conf, FakeV4NoGatewayNetwork())
-            dm._output_opts_file()
+            with mock.patch.object(dm, '_make_subnet_interface_ip_map') as ipm:
+                ipm.return_value = {FakeV4SubnetNoGateway.id: '192.168.1.1'}
+
+                dm._output_opts_file()
+                self.assertTrue(ipm.called)
 
         self.safe.assert_called_once_with('/foo/opts', expected)
 
@@ -538,12 +546,32 @@ tag:tag1,option:classless-static-route,%s,%s""".lstrip() % (fake_v6,
                 pid.__get__ = mock.Mock(return_value=5)
                 dm = dhcp.Dnsmasq(self.conf, FakeDualNetwork(),
                                   namespace='qdhcp-ns')
-                dm.reload_allocations()
+
+                method_name = '_make_subnet_interface_ip_map'
+                with mock.patch.object(dhcp.Dnsmasq, method_name) as ip_map:
+                    ip_map.return_value = {}
+                    dm.reload_allocations()
+                    self.assertTrue(ip_map.called)
 
         self.safe.assert_has_calls([mock.call(exp_host_name, exp_host_data),
                                     mock.call(exp_opt_name, exp_opt_data)])
         self.execute.assert_called_once_with(exp_args, root_helper='sudo',
                                              check_exit_code=True)
+
+    def test_make_subnet_interface_ip_map(self):
+        with mock.patch('quantum.agent.linux.ip_lib.IPDevice') as ip_dev:
+            ip_dev.return_value.addr.list.return_value = [
+                {'cidr': '192.168.0.1/24'}
+            ]
+
+            dm = dhcp.Dnsmasq(self.conf,
+                              FakeDualNetwork(),
+                              namespace='qdhcp-ns')
+
+            self.assertEqual(
+                dm._make_subnet_interface_ip_map(),
+                {FakeV4Subnet.id: '192.168.0.1'}
+            )
 
     def _test_lease_relay_script_helper(self, action, lease_remaining,
                                         path_exists=True):
@@ -607,3 +635,40 @@ tag:tag1,option:classless-static-route,%s,%s""".lstrip() % (fake_v6,
 
     def test_lease_relay_script_add_socket_missing(self):
         self._test_lease_relay_script_helper('add', 120, False)
+
+    def test_remove_config_files(self):
+        net = FakeV4Network()
+        path = '/opt/data/quantum/dhcp'
+        self.conf.dhcp_confs = path
+
+        with mock.patch('shutil.rmtree') as rmtree:
+            lp = LocalChild(self.conf, net)
+            lp._remove_config_files()
+
+            rmtree.assert_called_once_with(os.path.join(path, net.id),
+                                           ignore_errors=True)
+
+    def test_existing_dhcp_networks(self):
+        path = '/opt/data/quantum/dhcp'
+        self.conf.dhcp_confs = path
+
+        cases = {
+            # network_uuid --> is_dhcp_alive?
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa': True,
+            'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb': False,
+            'not_uuid_like_name': True
+        }
+
+        def active_fake(self, instance, cls):
+            return cases[instance.network.id]
+
+        with mock.patch('os.listdir') as mock_listdir:
+            with mock.patch.object(dhcp.Dnsmasq, 'active') as mock_active:
+                mock_active.__get__ = active_fake
+                mock_listdir.return_value = cases.keys()
+
+                result = dhcp.Dnsmasq.existing_dhcp_networks(self.conf, 'sudo')
+
+                mock_listdir.assert_called_once_with(path)
+                self.assertEquals(['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
+                                  result)

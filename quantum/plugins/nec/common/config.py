@@ -15,45 +15,52 @@
 #    under the License.
 # @author: Ryota MIBU
 
-from quantum.openstack.common import cfg
+from oslo.config import cfg
+
+from quantum.agent.common import config
 # import rpc config options
 from quantum.openstack.common import rpc
+from quantum import scheduler
 
-
-database_opts = [
-    cfg.StrOpt('sql_connection', default='sqlite://'),
-    cfg.IntOpt('sql_max_retries', default=-1),
-    cfg.IntOpt('reconnect_interval', default=2),
-]
 
 ovs_opts = [
-    cfg.StrOpt('integration_bridge', default='br-int'),
+    cfg.StrOpt('integration_bridge', default='br-int',
+               help=_("Integration bridge to use")),
 ]
 
 agent_opts = [
-    cfg.IntOpt('polling_interval', default=2),
-    cfg.StrOpt('root_helper', default='sudo'),
+    cfg.IntOpt('polling_interval', default=2,
+               help=_("The number of seconds the agent will wait between "
+                      "polling for local device changes.")),
 ]
 
 ofc_opts = [
-    cfg.StrOpt('host', default='127.0.0.1'),
-    cfg.StrOpt('port', default='8888'),
-    cfg.StrOpt('driver', default='trema'),
-    cfg.BoolOpt('enable_packet_filter', default=True),
-    cfg.BoolOpt('use_ssl', default=False),
-    cfg.StrOpt('key_file', default=None),
-    cfg.StrOpt('cert_file', default=None),
+    cfg.StrOpt('host', default='127.0.0.1',
+               help=_("Host to connect to")),
+    cfg.StrOpt('port', default='8888',
+               help=_("Port to connect to")),
+    cfg.StrOpt('driver', default='trema',
+               help=_("Driver to use")),
+    cfg.BoolOpt('enable_packet_filter', default=True,
+                help=_("Enable packet filter")),
+    cfg.BoolOpt('use_ssl', default=False,
+                help=_("Use SSL to connect")),
+    cfg.StrOpt('key_file', default=None,
+               help=_("Key file")),
+    cfg.StrOpt('cert_file', default=None,
+               help=_("Certificate file")),
 ]
 
 
-cfg.CONF.register_opts(database_opts, "DATABASE")
 cfg.CONF.register_opts(ovs_opts, "OVS")
 cfg.CONF.register_opts(agent_opts, "AGENT")
 cfg.CONF.register_opts(ofc_opts, "OFC")
+config.register_agent_state_opts_helper(cfg.CONF)
+config.register_root_helper(cfg.CONF)
+cfg.CONF.register_opts(scheduler.AGENTS_SCHEDULER_OPTS)
 
 # shortcuts
 CONF = cfg.CONF
-DATABASE = cfg.CONF.DATABASE
 OVS = cfg.CONF.OVS
 AGENT = cfg.CONF.AGENT
 OFC = cfg.CONF.OFC

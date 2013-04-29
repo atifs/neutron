@@ -15,11 +15,10 @@
 #    under the License.
 # @author: Rohit Agarwalla, Cisco Systems, Inc.
 
-import uuid
-
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
 from sqlalchemy.orm import relation, object_mapper
 
+from quantum.openstack.common import uuidutils
 from quantum.plugins.cisco.db import models
 from quantum.plugins.cisco.db.models import BASE
 
@@ -100,55 +99,6 @@ class VlanBinding(BASE, L2NetworkBase):
                                             self.network_id)
 
 
-class PortProfile(BASE, L2NetworkBase):
-    """Represents L2 network plugin level PortProfile for a network"""
-    __tablename__ = 'portprofiles'
-
-    uuid = Column(String(255), primary_key=True)
-    name = Column(String(255))
-    vlan_id = Column(Integer)
-    qos = Column(String(255))
-
-    def __init__(self, name, vlan_id, qos=None):
-            self.uuid = uuid.uuid4()
-            self.name = name
-            self.vlan_id = vlan_id
-            self.qos = qos
-
-    def __repr__(self):
-        return "<PortProfile(%s,%s,%d,%s)>" % (self.uuid,
-                                               self.name,
-                                               self.vlan_id,
-                                               self.qos)
-
-
-class PortProfileBinding(BASE, L2NetworkBase):
-    """Represents PortProfile binding to tenant and network"""
-    __tablename__ = 'portprofile_bindings'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    tenant_id = Column(String(255))
-
-    port_id = Column(String(255), ForeignKey("ports.uuid"), nullable=False)
-    portprofile_id = Column(String(255), ForeignKey("portprofiles.uuid"),
-                            nullable=False)
-    default = Column(Boolean)
-    ports = relation(models.Port)
-    portprofile = relation(PortProfile, uselist=False)
-
-    def __init__(self, tenant_id, port_id, portprofile_id, default):
-        self.tenant_id = tenant_id
-        self.port_id = port_id
-        self.portprofile_id = portprofile_id
-        self.default = default
-
-    def __repr__(self):
-        return "<PortProfile Binding(%s,%s,%s,%s)>" % (self.tenant_id,
-                                                       self.port_id,
-                                                       self.portprofile_id,
-                                                       self.default)
-
-
 class QoS(BASE, L2NetworkBase):
     """Represents QoS for a tenant"""
     __tablename__ = 'qoss'
@@ -159,7 +109,7 @@ class QoS(BASE, L2NetworkBase):
     qos_desc = Column(String(255))
 
     def __init__(self, tenant_id, qos_name, qos_desc):
-        self.qos_id = str(uuid.uuid4())
+        self.qos_id = uuidutils.generate_uuid()
         self.tenant_id = tenant_id
         self.qos_name = qos_name
         self.qos_desc = qos_desc
@@ -180,7 +130,7 @@ class Credential(BASE, L2NetworkBase):
     password = Column(String(255))
 
     def __init__(self, tenant_id, credential_name, user_name, password):
-        self.credential_id = str(uuid.uuid4())
+        self.credential_id = uuidutils.generate_uuid()
         self.tenant_id = tenant_id
         self.credential_name = credential_name
         self.user_name = user_name

@@ -1,7 +1,7 @@
-"""
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
-# Copyright 2012 Nicira Networks, Inc.  All rights reserved.
+
+# Copyright 2012 Nicira Networks, Inc.
+# All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -17,16 +17,16 @@
 #
 # @author: Dan Wendlandt, Nicira, Inc
 #
-"""
 
 from abc import abstractmethod
 
+from oslo.config import cfg
+
+from quantum.api import extensions
 from quantum.api.v2 import attributes as attr
 from quantum.api.v2 import base
 from quantum.common import exceptions as qexception
-from quantum.extensions import extensions
 from quantum import manager
-from quantum.openstack.common import cfg
 from quantum import quota
 
 
@@ -39,19 +39,37 @@ class RouterInUse(qexception.InUse):
     message = _("Router %(router_id)s still has active ports")
 
 
+class RouterInterfaceNotFound(qexception.NotFound):
+    message = _("Router %(router_id)s does not have "
+                "an interface with id %(port_id)s")
+
+
+class RouterInterfaceNotFoundForSubnet(qexception.NotFound):
+    message = _("Router %(router_id)s has no interface "
+                "on subnet %(subnet_id)s")
+
+
+class RouterInterfaceInUseByFloatingIP(qexception.InUse):
+    message = _("Router interface for subnet %(subnet_id)s on router "
+                "%(router_id)s cannot be deleted, as it is required "
+                "by one or more floating IPs.")
+
+
 class FloatingIPNotFound(qexception.NotFound):
     message = _("Floating IP %(floatingip_id)s could not be found")
 
 
 class ExternalGatewayForFloatingIPNotFound(qexception.NotFound):
-    message = _("Could not find an external network gateway reachable "
+    message = _("External network %(external_network_id)s is not reachable "
                 "from subnet %(subnet_id)s.  Therefore, cannot associate "
                 "Port %(port_id)s with a Floating IP.")
 
 
 class FloatingIPPortAlreadyAssociated(qexception.InUse):
-    message = _("Port %(port_id)s already has a floating IP"
-                " associated with it")
+    message = _("Cannot associate floating IP %(floating_ip_address)s "
+                "(%(fip_id)s) with port %(port_id)s "
+                "using fixed IP %(fixed_ip)s, as that fixed IP already "
+                "has a floating IP on external network %(net_id)s.")
 
 
 class L3PortInUse(qexception.InUse):
@@ -64,43 +82,48 @@ class ExternalNetworkInUse(qexception.InUse):
                 "non-external, since it has existing gateway ports")
 
 
-def _validate_uuid_or_none(data, valid_values=None):
-    if data is None:
-        return None
-    return attr._validate_regex(data, attr.UUID_PATTERN)
+class RouterExternalGatewayInUseByFloatingIp(qexception.InUse):
+    message = _("Gateway cannot be updated for router %(router_id)s, since a "
+                "gateway to external network %(net_id)s is required by one or "
+                "more floating IPs.")
 
-attr.validators['type:uuid_or_none'] = _validate_uuid_or_none
 
 # Attribute Map
 RESOURCE_ATTRIBUTE_MAP = {
     'routers': {
         'id': {'allow_post': False, 'allow_put': False,
-               'validate': {'type:regex': attr.UUID_PATTERN},
-               'is_visible': True},
+               'validate': {'type:uuid': None},
+               'is_visible': True,
+               'primary_key': True},
         'name': {'allow_post': True, 'allow_put': True,
+                 'validate': {'type:string': None},
                  'is_visible': True, 'default': ''},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
                            'convert_to': attr.convert_to_boolean,
-                           'validate': {'type:boolean': None},
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
+                      'validate': {'type:string': None},
                       'is_visible': True},
         'external_gateway_info': {'allow_post': True, 'allow_put': True,
                                   'is_visible': True, 'default': None}
     },
     'floatingips': {
         'id': {'allow_post': False, 'allow_put': False,
-               'is_visible': True},
+               'validate': {'type:uuid': None},
+               'is_visible': True,
+               'primary_key': True},
         'floating_ip_address': {'allow_post': False, 'allow_put': False,
+                                'validate': {'type:ip_address_or_none': None},
                                 'is_visible': True},
         'floating_network_id': {'allow_post': True, 'allow_put': False,
-                                'validate': {'type:regex': attr.UUID_PATTERN},
+                                'validate': {'type:uuid': None},
                                 'is_visible': True},
         'router_id': {'allow_post': False, 'allow_put': False,
+                      'validate': {'type:uuid_or_none': None},
                       'is_visible': True, 'default': None},
         'port_id': {'allow_post': True, 'allow_put': True,
                     'validate': {'type:uuid_or_none': None},
@@ -110,6 +133,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                              'is_visible': True, 'default': None},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
+                      'validate': {'type:string': None},
                       'is_visible': True}
     },
 }
@@ -121,23 +145,23 @@ EXTENDED_ATTRIBUTES_2_0 = {
                             'default': attr.ATTR_NOT_SPECIFIED,
                             'is_visible': True,
                             'convert_to': attr.convert_to_boolean,
-                            'validate': {'type:boolean': None},
                             'enforce_policy': True,
                             'required_by_policy': True}}}
 
 l3_quota_opts = [
     cfg.IntOpt('quota_router',
                default=10,
-               help='number of routers allowed per tenant, -1 for unlimited'),
+               help=_('Number of routers allowed per tenant, -1 for '
+                      'unlimited')),
     cfg.IntOpt('quota_floatingip',
                default=50,
-               help='number of floating IPs allowed per tenant, '
-                    '-1 for unlimited'),
+               help=_('Number of floating IPs allowed per tenant, '
+                      '-1 for unlimited')),
 ]
 cfg.CONF.register_opts(l3_quota_opts, 'QUOTAS')
 
 
-class L3(object):
+class L3(extensions.ExtensionDescriptor):
 
     @classmethod
     def get_name(cls):
@@ -164,6 +188,8 @@ class L3(object):
     @classmethod
     def get_resources(cls):
         """ Returns Ext Resources """
+        my_plurals = [(key, key[:-1]) for key in RESOURCE_ATTRIBUTE_MAP.keys()]
+        attr.PLURALS.update(dict(my_plurals))
         exts = []
         plugin = manager.QuantumManager.get_plugin()
         for resource_name in ['router', 'floatingip']:
@@ -177,21 +203,28 @@ class L3(object):
 
             quota.QUOTAS.register_resource_by_name(resource_name)
 
-            controller = base.create_resource(collection_name,
-                                              resource_name,
-                                              plugin, params,
-                                              member_actions=member_actions)
+            controller = base.create_resource(
+                collection_name, resource_name, plugin, params,
+                member_actions=member_actions,
+                allow_pagination=cfg.CONF.allow_pagination,
+                allow_sorting=cfg.CONF.allow_sorting)
 
             ex = extensions.ResourceExtension(collection_name,
                                               controller,
-                                              member_actions=member_actions)
+                                              member_actions=member_actions,
+                                              attr_map=params)
             exts.append(ex)
 
         return exts
 
+    def update_attributes_map(self, attributes):
+        super(L3, self).update_attributes_map(
+            attributes, extension_attrs_map=RESOURCE_ATTRIBUTE_MAP)
+
     def get_extended_resources(self, version):
         if version == "2.0":
-            return EXTENDED_ATTRIBUTES_2_0
+            return dict(EXTENDED_ATTRIBUTES_2_0.items() +
+                        RESOURCE_ATTRIBUTE_MAP.items())
         else:
             return {}
 
@@ -215,7 +248,8 @@ class RouterPluginBase(object):
         pass
 
     @abstractmethod
-    def get_routers(self, context, filters=None, fields=None):
+    def get_routers(self, context, filters=None, fields=None,
+                    sorts=None, limit=None, marker=None, page_reverse=False):
         pass
 
     @abstractmethod
@@ -243,5 +277,13 @@ class RouterPluginBase(object):
         pass
 
     @abstractmethod
-    def get_floatingips(self, context, filters=None, fields=None):
+    def get_floatingips(self, context, filters=None, fields=None,
+                        sorts=None, limit=None, marker=None,
+                        page_reverse=False):
         pass
+
+    def get_routers_count(self, context, filters=None):
+        raise qexception.NotImplementedError()
+
+    def get_floatingips_count(self, context, filters=None):
+        raise qexception.NotImplementedError()

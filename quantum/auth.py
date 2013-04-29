@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-#    Copyright 2012 OpenStack LLC
+#    Copyright 2012 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -14,15 +14,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import logging
-
+from oslo.config import cfg
 import webob.dec
 import webob.exc
 
 from quantum import context
+from quantum.openstack.common import log as logging
 from quantum import wsgi
-from quantum.openstack.common import cfg
-
 
 LOG = logging.getLogger(__name__)
 
@@ -35,7 +33,7 @@ class QuantumKeystoneContext(wsgi.Middleware):
         # Determine the user ID
         user_id = req.headers.get('X_USER_ID', req.headers.get('X_USER'))
         if not user_id:
-            LOG.debug("Neither X_USER_ID nor X_USER found in request")
+            LOG.debug(_("Neither X_USER_ID nor X_USER found in request"))
             return webob.exc.HTTPUnauthorized()
 
         # Determine the tenant

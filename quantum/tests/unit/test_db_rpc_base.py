@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,34 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-
 import mock
 
 from quantum.db import dhcp_rpc_base
+from quantum.tests import base
 
 
-class TestDhcpAugmentContext(unittest.TestCase):
-    def test_augment_context(self):
-        context = mock.Mock()
-        context.user = 'quantum'
-        context.tenant = None
-        context.is_admin = True
+class TestDhcpRpcCallackMixin(base.BaseTestCase):
 
-        new_context = dhcp_rpc_base.augment_context(context)
-
-        self.assertEqual(new_context.user_id, context.user)
-        self.assertEqual(new_context.roles, ['admin'])
-
-
-class TestDhcpRpcCallackMixin(unittest.TestCase):
     def setUp(self):
-        self.context_p = mock.patch('quantum.db.dhcp_rpc_base.augment_context')
-        self.context_p.start()
-
+        super(TestDhcpRpcCallackMixin, self).setUp()
         self.plugin_p = mock.patch('quantum.manager.QuantumManager.get_plugin')
         get_plugin = self.plugin_p.start()
-        self.plugin = mock.Mock()
+        self.plugin = mock.MagicMock()
         get_plugin.return_value = self.plugin
         self.callbacks = dhcp_rpc_base.DhcpRpcCallbackMixin()
         self.log_p = mock.patch('quantum.db.dhcp_rpc_base.LOG')
@@ -49,7 +34,7 @@ class TestDhcpRpcCallackMixin(unittest.TestCase):
     def tearDown(self):
         self.log_p.stop()
         self.plugin_p.stop()
-        self.context_p.stop()
+        super(TestDhcpRpcCallackMixin, self).tearDown()
 
     def test_get_active_networks(self):
         plugin_retval = [dict(id='a'), dict(id='b')]
@@ -75,7 +60,7 @@ class TestDhcpRpcCallackMixin(unittest.TestCase):
         self.plugin.get_ports.return_value = port_retval
 
         retval = self.callbacks.get_network_info(mock.Mock(), network_id='a')
-        self.assertEquals(retval, network_retval)
+        self.assertEqual(retval, network_retval)
         self.assertEqual(retval['subnets'], subnet_retval)
         self.assertEqual(retval['ports'], port_retval)
 

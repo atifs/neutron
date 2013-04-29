@@ -17,22 +17,58 @@
 # @author: Brad Hall, Nicira Networks, Inc.
 # @author: Dan Wendlandt, Nicira Networks, Inc.
 
-import logging
 import time
 
+from eventlet import db_pool
+from eventlet import greenthread
+try:
+    import MySQLdb
+except ImportError:
+    MySQLdb = None
+from oslo.config import cfg
 import sqlalchemy as sql
 from sqlalchemy import create_engine
 from sqlalchemy.exc import DisconnectionError
-from sqlalchemy.orm import sessionmaker, exc
+from sqlalchemy.interfaces import PoolListener
+from sqlalchemy.orm import sessionmaker
 
 from quantum.db import model_base
+from quantum.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
+SQL_CONNECTION_DEFAULT = 'sqlite://'
 
+
+database_opts = [
+    cfg.StrOpt('sql_connection',
+               help=_('The SQLAlchemy connection string used to connect to '
+                      'the database')),
+    cfg.IntOpt('sql_max_retries', default=-1,
+               help=_('Database reconnection retry times')),
+    cfg.IntOpt('reconnect_interval', default=2,
+               help=_('Database reconnection interval in seconds')),
+    cfg.IntOpt('sql_min_pool_size',
+               default=1,
+               help=_("Minimum number of SQL connections to keep open in a "
+                      "pool")),
+    cfg.IntOpt('sql_max_pool_size',
+               default=5,
+               help=_("Maximum number of SQL connections to keep open in a "
+                      "pool")),
+    cfg.IntOpt('sql_idle_timeout',
+               default=3600,
+               help=_("Timeout in seconds before idle sql connections are "
+                      "reaped")),
+    cfg.BoolOpt('sql_dbpool_enable',
+                default=False,
+                help=_("Enable the use of eventlet's db_pool for MySQL")),
+]
+
+cfg.CONF.register_opts(database_opts, "DATABASE")
 
 _ENGINE = None
 _MAKER = None
-BASE = model_base.BASE
+BASE = model_base.BASEV2
 
 
 class MySQLPingListener(object):
@@ -50,22 +86,38 @@ class MySQLPingListener(object):
             dbapi_con.cursor().execute('select 1')
         except dbapi_con.OperationalError, ex:
             if ex.args[0] in (2006, 2013, 2014, 2045, 2055):
-                LOG.warn('Got mysql server has gone away: %s', ex)
-                raise DisconnectionError("Database server went away")
+                LOG.warn(_('Got mysql server has gone away: %s'), ex)
+                raise DisconnectionError(_("Database server went away"))
             else:
                 raise
 
 
-def configure_db(options):
+class SqliteForeignKeysListener(PoolListener):
+    """
+    Ensures that the foreign key constraints are enforced in SQLite.
+
+    The foreign key constraints are disabled by default in SQLite,
+    so the foreign key constraints will be enabled here for every
+    database connection
+    """
+    def connect(self, dbapi_con, con_record):
+        dbapi_con.execute('pragma foreign_keys=ON')
+
+
+def configure_db():
     """
     Establish the database, create an engine if needed, and
     register the models.
-
-    :param options: Mapping of configuration options
     """
     global _ENGINE
     if not _ENGINE:
-        connection_dict = sql.engine.url.make_url(options['sql_connection'])
+        sql_connection = cfg.CONF.DATABASE.sql_connection
+        if not sql_connection:
+            LOG.warn(_("Option 'sql_connection' not specified "
+                       "in any config file - using default "
+                       "value '%s'" % SQL_CONNECTION_DEFAULT))
+            sql_connection = SQL_CONNECTION_DEFAULT
+        connection_dict = sql.engine.url.make_url(sql_connection)
         engine_args = {
             'pool_recycle': 3600,
             'echo': False,
@@ -74,21 +126,56 @@ def configure_db(options):
 
         if 'mysql' in connection_dict.drivername:
             engine_args['listeners'] = [MySQLPingListener()]
+            if (MySQLdb is not None and
+                cfg.CONF.DATABASE.sql_dbpool_enable):
+                pool_args = {
+                    'db': connection_dict.database,
+                    'passwd': connection_dict.password or '',
+                    'host': connection_dict.host,
+                    'user': connection_dict.username,
+                    'min_size': cfg.CONF.DATABASE.sql_min_pool_size,
+                    'max_size': cfg.CONF.DATABASE.sql_max_pool_size,
+                    'max_idle': cfg.CONF.DATABASE.sql_idle_timeout
+                }
+                pool = db_pool.ConnectionPool(MySQLdb, **pool_args)
 
-        _ENGINE = create_engine(options['sql_connection'], **engine_args)
-        base = options.get('base', BASE)
-        if not register_models(base):
-            if 'reconnect_interval' in options:
-                remaining = options.get('sql_max_retries', -1)
-                reconnect_interval = options['reconnect_interval']
-                retry_registration(remaining, reconnect_interval, base)
+                def creator():
+                    conn = pool.create()
+                    # NOTE(belliott) eventlet >= 0.10 returns a tuple
+                    if isinstance(conn, tuple):
+                        _1, _2, conn = conn
+                    return conn
+
+                engine_args['creator'] = creator
+            if (MySQLdb is None and cfg.CONF.DATABASE.sql_dbpool_enable):
+                LOG.warn(_("Eventlet connection pooling will not work without "
+                           "python-mysqldb!"))
+        if 'sqlite' in connection_dict.drivername:
+            engine_args['listeners'] = [SqliteForeignKeysListener()]
+            if sql_connection == "sqlite://":
+                engine_args["connect_args"] = {'check_same_thread': False}
+
+        _ENGINE = create_engine(sql_connection, **engine_args)
+
+        sql.event.listen(_ENGINE, 'checkin', greenthread_yield)
+
+        if not register_models():
+            if cfg.CONF.DATABASE.reconnect_interval:
+                remaining = cfg.CONF.DATABASE.sql_max_retries
+                reconnect_interval = cfg.CONF.DATABASE.reconnect_interval
+                retry_registration(remaining, reconnect_interval)
 
 
 def clear_db(base=BASE):
-    global _ENGINE
+    global _ENGINE, _MAKER
     assert _ENGINE
-    for table in reversed(base.metadata.sorted_tables):
-        _ENGINE.execute(table.delete())
+
+    unregister_models(base)
+    if _MAKER:
+        _MAKER.close_all()
+        _MAKER = None
+    _ENGINE.dispose()
+    _ENGINE = None
 
 
 def get_session(autocommit=True, expire_on_commit=False):
@@ -108,11 +195,12 @@ def retry_registration(remaining, reconnect_interval, base=BASE):
     while True:
         if remaining != 'infinite':
             if remaining == 0:
-                LOG.error("Database connection lost, exit...")
+                LOG.error(_("Database connection lost, exit..."))
                 break
             remaining -= 1
-        LOG.info("Unable to connect to database, %s attempts left. "
-                 "Retrying in %s seconds" % (remaining, reconnect_interval))
+        LOG.info(_("Unable to connect to database, %(remaining)s attempts "
+                   "left. Retrying in %(reconnect_interval)s seconds"),
+                 locals())
         time.sleep(reconnect_interval)
         if register_models(base):
             break
@@ -125,7 +213,7 @@ def register_models(base=BASE):
     try:
         base.metadata.create_all(_ENGINE)
     except sql.exc.OperationalError as e:
-        LOG.info("Database registration exception: %s" % e)
+        LOG.info(_("Database registration exception: %s"), e)
         return False
     return True
 
@@ -135,3 +223,13 @@ def unregister_models(base=BASE):
     global _ENGINE
     assert _ENGINE
     base.metadata.drop_all(_ENGINE)
+
+
+def greenthread_yield(dbapi_con, con_record):
+    """
+    Ensure other greenthreads get a chance to execute by forcing a context
+    switch. With common database backends (eg MySQLdb and sqlite), there is
+    no implicit yield caused by network I/O since they are implemented by
+    C libraries that eventlet cannot monkey patch.
+    """
+    greenthread.sleep(0)

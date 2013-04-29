@@ -15,9 +15,8 @@
 #    under the License.
 # @author: Ryota MIBU
 
-import logging
-
 from quantum.openstack.common import importutils
+from quantum.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -27,10 +26,12 @@ DRIVER_LIST = {
     'trema_port': DRIVER_PATH % "trema.TremaPortBaseDriver",
     'trema_portmac': DRIVER_PATH % "trema.TremaPortMACBaseDriver",
     'trema_mac': DRIVER_PATH % "trema.TremaMACBaseDriver",
-    'pfc': DRIVER_PATH % "pfc.PFCDriver"}
+    'pfc': DRIVER_PATH % "pfc.PFCV4Driver",
+    'pfc_v3': DRIVER_PATH % "pfc.PFCV3Driver",
+    'pfc_v4': DRIVER_PATH % "pfc.PFCV4Driver"}
 
 
 def get_driver(driver_name):
-    LOG.info("Loading OFC driver: %s" % driver_name)
+    LOG.info(_("Loading OFC driver: %s"), driver_name)
     driver_klass = DRIVER_LIST.get(driver_name) or driver_name
     return importutils.import_class(driver_klass)

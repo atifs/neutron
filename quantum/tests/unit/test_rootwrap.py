@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-#    Copyright 2011 OpenStack LLC
+#    Copyright 2011 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -15,15 +15,16 @@
 #    under the License.
 
 import os
-import subprocess
 
-import unittest2 as unittest
+import mock
 
+from quantum.common import utils
 from quantum.rootwrap import filters
 from quantum.rootwrap import wrapper
+from quantum.tests import base
 
 
-class RootwrapTestCase(unittest.TestCase):
+class RootwrapTestCase(base.BaseTestCase):
 
     def setUp(self):
         super(RootwrapTestCase, self).setUp()
@@ -33,6 +34,9 @@ class RootwrapTestCase(unittest.TestCase):
             filters.RegExpFilter("/bin/cat", "root", 'cat', '/[a-z]+'),
             filters.CommandFilter("/nonexistant/cat", "root"),
             filters.CommandFilter("/bin/cat", "root")]  # Keep this one last
+
+    def tearDown(self):
+        super(RootwrapTestCase, self).tearDown()
 
     def test_RegExpFilter_match(self):
         usercmd = ["ls", "/root"]
@@ -64,8 +68,19 @@ class RootwrapTestCase(unittest.TestCase):
         self.assertEqual(env.get('QUANTUM_RELAY_SOCKET_PATH'), 'A')
         self.assertEqual(env.get('QUANTUM_NETWORK_ID'), 'foobar')
 
+    def test_DnsmasqNetnsFilter(self):
+        usercmd = ['QUANTUM_RELAY_SOCKET_PATH=A', 'QUANTUM_NETWORK_ID=foobar',
+                   'ip', 'netns', 'exec', 'foo', 'dnsmasq', 'foo']
+        f = filters.DnsmasqNetnsFilter("/sbin/ip", "root")
+        self.assertTrue(f.match(usercmd))
+        self.assertEqual(f.get_command(usercmd), ['/sbin/ip', 'netns', 'exec',
+                                                  'foo', 'dnsmasq', 'foo'])
+        env = f.get_environment(usercmd)
+        self.assertEqual(env.get('QUANTUM_RELAY_SOCKET_PATH'), 'A')
+        self.assertEqual(env.get('QUANTUM_NETWORK_ID'), 'foobar')
+
     def test_KillFilter(self):
-        p = subprocess.Popen(["/bin/sleep", "5"])
+        p = utils.subprocess_popen(["/bin/sleep", "5"])
         f = filters.KillFilter("root", "/bin/sleep", "-9", "-HUP")
         f2 = filters.KillFilter("root", "/usr/bin/sleep", "-9", "-HUP")
         usercmd = ['kill', '-ALRM', p.pid]
@@ -99,6 +114,16 @@ class RootwrapTestCase(unittest.TestCase):
         # Providing something that is not a pid should be False
         usercmd = ['kill', 'notapid']
         self.assertFalse(f.match(usercmd))
+
+    def test_KillFilter_deleted_exe(self):
+        """Makes sure deleted exe's are killed correctly"""
+        # See bug #1073768.
+        with mock.patch('os.readlink') as mock_readlink:
+            mock_readlink.return_value = '/bin/commandddddd (deleted)'
+            f = filters.KillFilter("root", "/bin/commandddddd")
+            usercmd = ['kill', 1234]
+            self.assertTrue(f.match(usercmd))
+            mock_readlink.assert_called_once_with("/proc/1234/exe")
 
     def test_ReadFileFilter(self):
         goodfn = '/good/file.name'

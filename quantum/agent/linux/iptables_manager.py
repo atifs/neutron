@@ -22,10 +22,13 @@
 """Implements iptables rules using linux utilities."""
 
 import inspect
-import logging
 import os
 
+from oslo.config import cfg
+
 from quantum.agent.linux import utils
+from quantum.openstack.common import lockutils
+from quantum.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 # NOTE(vish): Iptables supports chain names of up to 28 characters,  and we
@@ -33,6 +36,17 @@ LOG = logging.getLogger(__name__)
 #             so we limit it to 16 characters.
 #             (max_chain_name_length - len('-POSTROUTING') == 16)
 binary_name = os.path.basename(inspect.stack()[-1][1])[:16]
+# A length of a chain name must be less than or equal to 11 characters.
+# <max length of iptables chain name> - (<binary_name> + '-') = 28-(16+1) = 11
+MAX_CHAIN_LEN_WRAP = 11
+MAX_CHAIN_LEN_NOWRAP = 28
+
+
+def get_chain_name(chain_name, wrap=True):
+    if wrap:
+        return chain_name[:MAX_CHAIN_LEN_WRAP]
+    else:
+        return chain_name[:MAX_CHAIN_LEN_NOWRAP]
 
 
 class IptablesRule(object):
@@ -44,7 +58,7 @@ class IptablesRule(object):
     """
 
     def __init__(self, chain, rule, wrap=True, top=False):
-        self.chain = chain
+        self.chain = get_chain_name(chain, wrap)
         self.rule = rule
         self.wrap = wrap
         self.top = top
@@ -86,10 +100,30 @@ class IptablesTable(object):
         end up named 'nova-compute-OUTPUT'.
 
         """
+        name = get_chain_name(name, wrap)
         if wrap:
             self.chains.add(name)
         else:
             self.unwrapped_chains.add(name)
+
+    def _select_chain_set(self, wrap):
+        if wrap:
+            return self.chains
+        else:
+            return self.unwrapped_chains
+
+    def ensure_remove_chain(self, name, wrap=True):
+        """Ensure the chain is removed.
+
+        This removal "cascades". All rule in the chain are removed, as are
+        all rules in other chains that jump to it.
+        """
+        name = get_chain_name(name, wrap)
+        chain_set = self._select_chain_set(wrap)
+        if name not in chain_set:
+            return
+
+        self.remove_chain(name, wrap)
 
     def remove_chain(self, name, wrap=True):
         """Remove named chain.
@@ -100,19 +134,16 @@ class IptablesTable(object):
         If the chain is not found, this is merely logged.
 
         """
-        if wrap:
-            chain_set = self.chains
-        else:
-            chain_set = self.unwrapped_chains
+        name = get_chain_name(name, wrap)
+        chain_set = self._select_chain_set(wrap)
 
         if name not in chain_set:
-            LOG.warn(('Attempted to remove chain %s which does not exist'),
+            LOG.warn(_('Attempted to remove chain %s which does not exist'),
                      name)
             return
 
         chain_set.remove(name)
         self.rules = filter(lambda r: r.chain != name, self.rules)
-
         if wrap:
             jump_snippet = '-j %s-%s' % (binary_name, name)
         else:
@@ -131,8 +162,9 @@ class IptablesTable(object):
         is applied correctly.
 
         """
+        chain = get_chain_name(chain, wrap)
         if wrap and chain not in self.chains:
-            raise LookupError(('Unknown chain: %r') % chain)
+            raise LookupError(_('Unknown chain: %r') % chain)
 
         if '$' in rule:
             rule = ' '.join(map(self._wrap_target_chain, rule.split(' ')))
@@ -141,7 +173,7 @@ class IptablesTable(object):
 
     def _wrap_target_chain(self, s):
         if s.startswith('$'):
-            return '%s-%s' % (binary_name, s[1:])
+            return ('%s-%s' % (binary_name, s[1:]))
         return s
 
     def remove_rule(self, chain, rule, wrap=True, top=False):
@@ -152,16 +184,18 @@ class IptablesTable(object):
         CLI tool.
 
         """
+        chain = get_chain_name(chain, wrap)
         try:
             self.rules.remove(IptablesRule(chain, rule, wrap, top))
         except ValueError:
-            LOG.warn(('Tried to remove rule that was not there:'
-                      ' %(chain)r %(rule)r %(wrap)r %(top)r'),
+            LOG.warn(_('Tried to remove rule that was not there:'
+                       ' %(chain)r %(rule)r %(wrap)r %(top)r'),
                      {'chain': chain, 'rule': rule,
                       'top': top, 'wrap': wrap})
 
     def empty_chain(self, chain, wrap=True):
         """Remove all rules from a chain."""
+        chain = get_chain_name(chain, wrap)
         chained_rules = [rule for rule in self.rules
                          if rule.chain == chain and rule.wrap == wrap]
         for rule in chained_rules:
@@ -201,6 +235,7 @@ class IptablesManager(object):
         self.use_ipv6 = use_ipv6
         self.root_helper = root_helper
         self.namespace = namespace
+        self.iptables_apply_deferred = False
 
         self.ipv4 = {'filter': IptablesTable()}
         self.ipv6 = {'filter': IptablesTable()}
@@ -261,7 +296,21 @@ class IptablesManager(object):
             self.ipv4['nat'].add_chain('float-snat')
             self.ipv4['nat'].add_rule('snat', '-j $float-snat')
 
+    def defer_apply_on(self):
+        self.iptables_apply_deferred = True
+
+    def defer_apply_off(self):
+        self.iptables_apply_deferred = False
+        self._apply()
+
     def apply(self):
+        if self.iptables_apply_deferred:
+            return
+
+        self._apply()
+
+    @lockutils.synchronized('iptables', 'quantum-', external=True)
+    def _apply(self):
         """Apply the current in-memory set of iptables rules.
 
         This will blow away any rules left over from previous runs of the
@@ -269,7 +318,7 @@ class IptablesManager(object):
         rules. This happens atomically, thanks to iptables-restore.
 
         """
-        s = [('/sbin/iptables', self.ipv4)]
+        s = [('iptables', self.ipv4)]
         if self.use_ipv6:
             s += [('ip6tables', self.ipv6)]
 
@@ -289,7 +338,7 @@ class IptablesManager(object):
                 self.execute(args,
                              process_input='\n'.join(new_filter),
                              root_helper=self.root_helper)
-        LOG.debug(("IPTablesManager.apply completed with success"))
+        LOG.debug(_("IPTablesManager.apply completed with success"))
 
     def _modify_rules(self, current_lines, table, binary=None):
         unwrapped_chains = table.unwrapped_chains

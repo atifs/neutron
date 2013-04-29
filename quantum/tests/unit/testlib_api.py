@@ -1,4 +1,4 @@
-# Copyright 2012 OpenStack LLC
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,8 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from quantum.api.v2 import attributes
+from quantum.tests import base
 from quantum import wsgi
-from quantum.wsgi import Serializer
 
 
 def create_request(path, body, content_type, method='GET',
@@ -31,3 +32,28 @@ def create_request(path, body, content_type, method='GET',
     if context:
         req.environ['quantum.context'] = context
     return req
+
+
+class WebTestCase(base.BaseTestCase):
+    fmt = 'json'
+
+    def setUp(self):
+        super(WebTestCase, self).setUp()
+        json_deserializer = wsgi.JSONDeserializer()
+        xml_deserializer = wsgi.XMLDeserializer(
+            attributes.get_attr_metadata())
+        self._deserializers = {
+            'application/json': json_deserializer,
+            'application/xml': xml_deserializer,
+        }
+
+    def deserialize(self, response):
+        ctype = 'application/%s' % self.fmt
+        data = self._deserializers[ctype].deserialize(response.body)['body']
+        return data
+
+    def serialize(self, data):
+        ctype = 'application/%s' % self.fmt
+        result = wsgi.Serializer(
+            attributes.get_attr_metadata()).serialize(data, ctype)
+        return result

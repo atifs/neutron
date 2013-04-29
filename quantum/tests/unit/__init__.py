@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,23 +20,16 @@
 
 import __builtin__
 import os
-import unittest
 
 setattr(__builtin__, '_', lambda x: x)
 
-from quantum.openstack.common import cfg
+from oslo.config import cfg
 
 
 reldir = os.path.join(os.path.dirname(__file__), '..', '..', '..')
 absdir = os.path.abspath(reldir)
 cfg.CONF.state_path = absdir
-
-
-class BaseTest(unittest.TestCase):
-
-    def setUp(self):
-        pass
-
-
-def setUp():
-    pass
+# An empty lock path forces lockutils.synchronized to use a temporary
+# location for lock files that will be cleaned up automatically.
+cfg.CONF.lock_path = ''
+cfg.CONF.use_stderr = False

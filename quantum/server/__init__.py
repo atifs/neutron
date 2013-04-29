@@ -19,32 +19,31 @@
 # If ../quantum/__init__.py exists, add ../ to Python search path, so that
 # it will override what happens to be installed in /usr/(local/)lib/python...
 
-import optparse
-import os
 import sys
 
-from quantum import service
+from oslo.config import cfg
+
 from quantum.common import config
-from quantum.openstack.common import cfg
-from quantum.version import version_string
+from quantum import service
 
 
 def main(args_str = None):
     # the configuration will be read into the cfg.CONF global data structure
     if not args_str:
-        args_list = sys.argv
+        args_list = sys.argv[1:]
     else:
         args_list = args_str.split()
     config.parse(args_list)
+
     if not cfg.CONF.config_file:
-        sys.exit("ERROR: Unable to find configuration file via the default"
-                 " search paths (~/.quantum/, ~/, /etc/quantum/, /etc/) and"
-                 " the '--config-file' option!")
+        sys.exit(_("ERROR: Unable to find configuration file via the default"
+                   " search paths (~/.quantum/, ~/, /etc/quantum/, /etc/) and"
+                   " the '--config-file' option!"))
     try:
         quantum_service = service.serve_wsgi(service.QuantumApiService)
         quantum_service.wait()
     except RuntimeError, e:
-        sys.exit("ERROR: %s" % e)
+        sys.exit(_("ERROR: %s") % e)
 
 
 if __name__ == "__main__":

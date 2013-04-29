@@ -14,33 +14,72 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from quantum.openstack.common import cfg
+from oslo.config import cfg
 
+from quantum import scheduler
 
-database_opts = [
-    cfg.StrOpt('sql_connection', default='sqlite://'),
-    cfg.IntOpt('sql_max_retries', default=-1),
-    cfg.IntOpt('reconnect_interval', default=2),
+core_opts = [
+    cfg.BoolOpt('metadata_dhcp_host_route', default=False),
 ]
 
 nvp_opts = [
-    cfg.IntOpt('max_lp_per_bridged_ls', default=64),
-    cfg.IntOpt('concurrent_connections', default=5),
-    cfg.IntOpt('failover_time', default=240)
+    cfg.IntOpt('max_lp_per_bridged_ls', default=64,
+               help=_("Maximum number of ports of a logical switch on a "
+                      "bridged transport zone (default 64)")),
+    cfg.IntOpt('max_lp_per_overlay_ls', default=256,
+               help=_("Maximum number of ports of a logical switch on an "
+                      "overlay transport zone (default 64)")),
+    cfg.IntOpt('concurrent_connections', default=5,
+               help=_("Maximum concurrent connections")),
+    cfg.IntOpt('nvp_gen_timeout', default=-1,
+               help=_("Number of seconds a generation id should be valid for "
+                      "(default -1 meaning do not time out)")),
+    cfg.StrOpt('default_cluster_name',
+               help=_("Default cluster name")),
+    cfg.BoolOpt('enable_metadata_access_network', default=True,
+                help=_("Enables dedicated connection to the metadata proxy "
+                       "for metadata server access via Quantum router")),
 ]
 
 cluster_opts = [
-    cfg.StrOpt('default_tz_uuid'),
-    cfg.StrOpt('nvp_cluster_uuid'),
-    cfg.StrOpt('nova_zone_id'),
-    cfg.MultiStrOpt('nvp_controller_connection')
+    cfg.StrOpt('default_tz_uuid',
+               help=_("This is uuid of the default NVP Transport zone that "
+                      "will be used for creating tunneled isolated "
+                      "\"Quantum\" networks. It needs to be created in NVP "
+                      "before starting Quantum with the nvp plugin.")),
+    cfg.StrOpt('nvp_cluster_uuid',
+               help=_("Optional paramter identifying the UUID of the cluster "
+                      "in NVP.  This can be retrieved from NVP management "
+                      "console \"admin\" section.")),
+    cfg.StrOpt('nova_zone_id',
+               help=_("Optional parameter identifying the Nova \"zone\" that "
+                      "maps to this NVP cluster.")),
+    cfg.MultiStrOpt('nvp_controller_connection',
+                    help=_("Describes a connection to a single NVP "
+                           "controller. A different connection for each "
+                           "controller in the cluster can be specified; "
+                           "there must be at least one connection per "
+                           "cluster.")),
+    cfg.StrOpt('default_l3_gw_service_uuid',
+               help=_("Unique identifier of the NVP L3 Gateway service "
+                      "which will be used for implementing routers and "
+                      "floating IPs")),
+    cfg.StrOpt('default_l2_gw_service_uuid',
+               help=_("Unique identifier of the NVP L2 Gateway service "
+                      "which will be used by default for network gateways")),
+    cfg.StrOpt('default_interface_name', default='breth0',
+               help=_("Name of the interface on a L2 Gateway transport node"
+                      "which should be used by default when setting up a "
+                      "network connection")),
 ]
 
-cfg.CONF.register_opts(database_opts, "DATABASE")
+# Register the configuration options
+cfg.CONF.register_opts(core_opts)
 cfg.CONF.register_opts(nvp_opts, "NVP")
+cfg.CONF.register_opts(scheduler.AGENTS_SCHEDULER_OPTS)
 
 
-class ClusterConfigOptions(cfg.CommonConfigOpts):
+class ClusterConfigOptions(cfg.ConfigOpts):
 
     def __init__(self, config_options):
         super(ClusterConfigOptions, self).__init__()
@@ -116,7 +155,7 @@ def _retrieve_extra_groups(conf, key=None, delimiter=':'):
     results = []
     for parsed_file in cfg.CONF._cparser.parsed:
         for parsed_item in parsed_file.keys():
-            if not parsed_item in cfg.CONF:
+            if parsed_item not in cfg.CONF:
                 items = key and parsed_item.split(delimiter)
                 if not key or key == items[0]:
                     results.append(parsed_item)

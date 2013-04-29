@@ -15,15 +15,14 @@
 #    under the License.
 # @author: Dan Wendlandt, Nicira, Inc.
 
-import uuid
-
 import mox
-import unittest2 as unittest
 
 from quantum.agent.linux import ovs_lib, utils
+from quantum.openstack.common import uuidutils
+from quantum.tests import base
 
 
-class OVS_Lib_Test(unittest.TestCase):
+class OVS_Lib_Test(base.BaseTestCase):
     """
     A test suite to excercise the OVS libraries shared by Quantum agents.
     Note: these tests do not actually execute ovs-* utilities, and thus
@@ -31,6 +30,7 @@ class OVS_Lib_Test(unittest.TestCase):
     """
 
     def setUp(self):
+        super(OVS_Lib_Test, self).setUp()
         self.BR_NAME = "br-int"
         self.TO = "--timeout=2"
 
@@ -38,9 +38,7 @@ class OVS_Lib_Test(unittest.TestCase):
         self.root_helper = 'sudo'
         self.br = ovs_lib.OVSBridge(self.BR_NAME, self.root_helper)
         self.mox.StubOutWithMock(utils, "execute")
-
-    def tearDown(self):
-        self.mox.UnsetStubs()
+        self.addCleanup(self.mox.UnsetStubs)
 
     def test_vifport(self):
         """create and stringify vif port, confirm no exceptions"""
@@ -48,7 +46,7 @@ class OVS_Lib_Test(unittest.TestCase):
 
         pname = "vif1.0"
         ofport = 5
-        vif_id = str(uuid.uuid4())
+        vif_id = uuidutils.generate_uuid()
         mac = "ca:fe:de:ad:be:ef"
 
         # test __init__
@@ -230,7 +228,7 @@ class OVS_Lib_Test(unittest.TestCase):
     def _test_get_vif_ports(self, is_xen=False):
         pname = "tap99"
         ofport = "6"
-        vif_id = str(uuid.uuid4())
+        vif_id = uuidutils.generate_uuid()
         mac = "ca:fe:de:ad:be:ef"
 
         utils.execute(["ovs-vsctl", self.TO, "list-ports", self.BR_NAME],
@@ -313,4 +311,38 @@ class OVS_Lib_Test(unittest.TestCase):
 
         self.mox.ReplayAll()
         self.assertIsNone(ovs_lib.get_bridge_for_iface(root_helper, iface))
+        self.mox.VerifyAll()
+
+    def test_delete_all_ports(self):
+        self.mox.StubOutWithMock(self.br, 'get_port_name_list')
+        self.br.get_port_name_list().AndReturn(['port1'])
+        self.mox.StubOutWithMock(self.br, 'delete_port')
+        self.br.delete_port('port1')
+        self.mox.ReplayAll()
+        self.br.delete_ports(all_ports=True)
+        self.mox.VerifyAll()
+
+    def test_delete_quantum_ports(self):
+        port1 = ovs_lib.VifPort('tap1234', 1, uuidutils.generate_uuid(),
+                                'ca:fe:de:ad:be:ef', 'br')
+        port2 = ovs_lib.VifPort('tap5678', 2, uuidutils.generate_uuid(),
+                                'ca:ee:de:ad:be:ef', 'br')
+        ports = [port1, port2]
+        self.mox.StubOutWithMock(self.br, 'get_vif_ports')
+        self.br.get_vif_ports().AndReturn([port1, port2])
+        self.mox.StubOutWithMock(self.br, 'delete_port')
+        self.br.delete_port('tap1234')
+        self.br.delete_port('tap5678')
+        self.mox.ReplayAll()
+        self.br.delete_ports(all_ports=False)
+        self.mox.VerifyAll()
+
+    def test_get_bridges(self):
+        bridges = ['br-int', 'br-ex']
+        root_helper = 'sudo'
+        utils.execute(["ovs-vsctl", self.TO, "list-br"],
+                      root_helper=root_helper).AndReturn('br-int\nbr-ex\n')
+
+        self.mox.ReplayAll()
+        self.assertEqual(ovs_lib.get_bridges(root_helper), bridges)
         self.mox.VerifyAll()
