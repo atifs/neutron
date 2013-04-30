@@ -776,6 +776,11 @@ class DBInterface(object):
         return ret_list
     #end network_list
 
+    def network_count(self, filters = None):
+        nets_info = self.network_list(filters)
+        return len(nets_info)
+    #end network_count
+
     # subnet api handlers
     def subnet_create(self, subnet_q):
         net_id = subnet_q['network_id']

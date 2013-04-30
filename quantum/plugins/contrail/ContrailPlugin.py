@@ -219,6 +219,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         return nets_dicts
     #end get_networks
 
+    def get_networks_count(self, context, filters=None):
+        nets_count = self._cfgdb.network_count(filters)
+        LOG.debug("get_networks_count(): " + str(nets_count))
+        return nets_count
+    #end get_networks_count
+
     # Subnet API handlers
     def create_subnet(self, context, subnet):
         subnet_info = self._cfgdb.subnet_create(subnet['subnet'])
