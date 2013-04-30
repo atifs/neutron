@@ -572,10 +572,6 @@ class Controller(object):
         network = self._plugin.get_network(
             request.context,
             resource_item['network_id'])
-        # do not perform the check on shared networks
-        # TODO ajay enable this if network.get('shared'):
-        #    return
-        return
 
         network_owner = network['tenant_id']
 

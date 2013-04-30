@@ -14,9 +14,9 @@ from pprint import pformat
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
 from quantum.db import db_base_plugin_v2
-from quantum.extensions import floatingip
+from quantum.extensions import l3
 
-from quantum.openstack.common import cfg
+from oslo.config import cfg
 from httplib2 import Http
 import re
 
@@ -42,13 +42,13 @@ def _read_cfg(cfg_parser, section, option, default):
 
 #TODO define ABC PluginBase for ipam and policy and derive mixin from them
 class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
-                     floatingip.FloatingIpPluginBase):
+                     l3.RouterPluginBase):
     """
     .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
     supported_extension_aliases = ["ipam", "policy", "security_groups",
-                                   "floatingip"]
+                                   "l3"]
     _cfgdb = None
     _operdb = None
     _args = None
