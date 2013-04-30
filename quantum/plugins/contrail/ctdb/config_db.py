@@ -174,6 +174,8 @@ class DBInterface(object):
 
     def _virtual_network_update(self, net_obj):
         self._vnc_lib.virtual_network_update(net_obj)
+        # read back to get subnet gw allocated by api-server
+        net_obj = self._vnc_lib.virtual_network_read(id = net_obj.uuid)
         fq_name_str = json.dumps(net_obj.get_fq_name())
 
         self._db_cache['vnc_networks'][net_obj.uuid] = net_obj
