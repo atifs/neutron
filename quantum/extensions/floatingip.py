@@ -2,9 +2,9 @@ from abc import abstractmethod
 
 from quantum.api.v2 import attributes as attr
 from quantum.api.v2 import base
-from quantum.extensions import extensions
+from quantum.api import extensions
 from quantum import manager
-from quantum.openstack.common import cfg
+from oslo.config import cfg
 from quantum import quota
 
 def _validate_uuid_or_none(data, valid_values=None):

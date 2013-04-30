@@ -18,7 +18,7 @@ import webob
 import logging
 
 from quantum.api import api_common as common
-from quantum.extensions import extensions
+from quantum.api import extensions
 from quantum.manager import QuantumManager
 from quantum import wsgi
 

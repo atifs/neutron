@@ -3,9 +3,9 @@ from abc import abstractmethod
 from quantum.api.v2 import attributes as attr
 from quantum.api.v2 import base
 from quantum.common import exceptions as qexception
-from quantum.extensions import extensions
+from quantum.api import extensions
 from quantum import manager
-from quantum.openstack.common import cfg
+from oslo.config import cfg
 
 # Policy Exceptions
 class PolicyNotFound(qexception.NotFound):
