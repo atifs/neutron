@@ -585,7 +585,8 @@ class DBInterface(object):
         net_q_dict['id'] = net_obj.uuid
         net_q_dict['name'] = net_obj.name
         extra_dict['contrail:fq_name'] = net_obj.get_fq_name()
-        net_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
+        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
+        net_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         net_q_dict['admin_state_up'] = net_obj.get_id_perms().enable
         net_q_dict['shared'] = False
         net_q_dict['status'] = constants.NET_STATUS_ACTIVE
@@ -654,7 +655,8 @@ class DBInterface(object):
     def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj, ipam_fq_name):
         sn_q_dict = {}
         sn_q_dict['name'] = ''
-        sn_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
+        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
+        sn_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         sn_q_dict['network_id'] = net_obj.uuid
         sn_q_dict['ip_version'] = 4 #TODO ipv6?
 
@@ -728,7 +730,8 @@ class DBInterface(object):
 
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
-        ipam_q_dict['tenant_id'] = self.manager.tenant_name_to_id(ipam_q_dict.pop('parent_name'))
+        proj_obj = self._project_read(fq_name = ipam_obj.get_parent_fq_name())
+        ipam_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('network_ipam_mgmt', None)
         net_back_refs = ipam_q_dict.pop('virtual_network_back_refs', None)
         if net_back_refs:
@@ -763,7 +766,8 @@ class DBInterface(object):
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
-        policy_q_dict['tenant_id'] = self.manager.tenant_name_to_id(policy_q_dict.pop('parent_name'))
+        proj_obj = self._project_read(fq_name = policy_obj.get_parent_fq_name())
+        policy_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries', None)
         net_back_refs = policy_q_dict.pop('virtual_network_back_refs', None)
         if net_back_refs:
@@ -823,7 +827,7 @@ class DBInterface(object):
             port_id = port_obj.uuid
 
         fip_q_dict['id'] = fip_obj.uuid
-        fip_q_dict['tenant_id'] = proj_obj.uuid
+        fip_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         fip_q_dict['floating_ip_address'] = fip_obj.get_floating_ip_address()
         fip_q_dict['floating_network_id'] = net_obj.uuid
         fip_q_dict['router_id'] = None
@@ -869,7 +873,8 @@ class DBInterface(object):
             net_id = self._vnc_lib.obj_to_id(VirtualNetwork())
 
         net_obj = self._virtual_network_read(net_id = net_id)
-        port_q_dict['tenant_id'] = self.manager.tenant_name_to_id(net_obj.parent_name)
+        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
+        port_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
         port_q_dict['network_id'] = net_obj.uuid
 
         # TODO RHS below may need fixing
@@ -914,6 +919,7 @@ class DBInterface(object):
        
         net_obj = self._network_quantum_to_vnc(network_q, CREATE)
         net_uuid = self._virtual_network_create(net_obj)
+
 
         ret_network_q = self._network_vnc_to_quantum(net_obj)
         self._db_cache['q_networks'][net_uuid] = ret_network_q
@@ -1160,6 +1166,11 @@ class DBInterface(object):
         return ret_subnets
     #end subnets_list
 
+    def subnets_count(self, filters = None):
+        subnets_info = self.subnets_list(filters)
+        return len(subnets_info)
+    #end subnets_count
+
     # ipam api handlers
     def ipam_create(self, ipam_q):
         # TODO remove below once api-server can read and create projects
@@ -1226,6 +1237,11 @@ class DBInterface(object):
         return ret_list
     #end ipam_list
 
+    def ipam_count(self, filters = None):
+        ipam_info = self.ipam_list(filters)
+        return len(ipam_info)
+    #end ipam_count
+
     # policy api handlers
     def policy_create(self, policy_q):
         # TODO remove below once api-server can read and create projects
@@ -1288,6 +1304,11 @@ class DBInterface(object):
         return ret_list
     #end policy_list
 
+    def policy_count(self, filters = None):
+        policy_info = self.policy_list(filters)
+        return len(policy_info)
+    #end policy_count
+
     # floatingip api handlers
     def floatingip_create(self, fip_q):
         fip_obj = self._floatingip_quantum_to_vnc(fip_q, CREATE)
@@ -1338,6 +1359,11 @@ class DBInterface(object):
 
         return ret_list
     #end floatingip_list
+
+    def floatingip_count(self, filters = None):
+        floatingip_info = self.floatingip_list(filters)
+        return len(floatingip_info)
+    #end floatingip_count
 
     # port api handlers
     def port_create(self, port_q):
@@ -1480,5 +1506,10 @@ class DBInterface(object):
 
         return ret_q_ports
     #end port_list
+
+    def port_count(self, filters = None):
+        port_info = self.port_list(filters)
+        return len(port_info)
+    #end port_count
 
 #end class DBInterface

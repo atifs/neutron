@@ -48,7 +48,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     """
 
     supported_extension_aliases = ["ipam", "policy", "security_groups",
-                                   "l3"]
+                                   "router"]
     _cfgdb = None
     _operdb = None
     _args = None
@@ -286,6 +286,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         return subnets_dicts
     #end get_subnets
 
+    def get_subnets_count(self, context, filters=None):
+        subnets_count = self._cfgdb.subnets_count(filters)
+        LOG.debug("get_subnets_count(): " + str(subnets_count))
+        return subnets_count
+    #end get_subnets_count
+
     # Ipam API handlers
     def create_ipam(self, context, ipam):
         """
@@ -357,6 +363,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         LOG.debug("get_ipams(): " + pformat(ipams_dicts))
         return ipams_dicts
     #end get_ipams
+
+    def get_ipams_count(self, context, filters=None):
+        ipams_count = self._cfgdb.ipams_count(filters)
+        LOG.debug("get_ipams_count(): " + str(ipams_count))
+        return ipams_count
+    #end get_ipams_count
 
     # Policy API handlers
     def create_policy(self, context, policy):
@@ -430,6 +442,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         return policys_dicts
     #end get_policys
 
+    def get_policy_count(self, context, filters=None):
+        policy_count = self._cfgdb.policy_count(filters)
+        LOG.debug("get_policy_count(): " + str(policy_count))
+        return policy_count
+    #end get_policy_count
+
     # Floating IP API handlers
     def create_floatingip(self, context, floatingip):
         fip_info = self._cfgdb.floatingip_create(floatingip['floatingip'])
@@ -486,6 +504,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         LOG.debug("get_floatingips(): " + pformat(fips_dicts)) 
         return fips_dicts
     #end get_floatingips
+
+    def get_floatingips_count(self, context, filters=None):
+        floatingips_count = self._cfgdb.floatingips_count(filters)
+        LOG.debug("get_floatingips_count(): " + str(floatingips_count))
+        return floatingips_count
+    #end get_floatingips_count
 
     # Port API handlers
     def create_port(self, context, port):
@@ -560,6 +584,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         LOG.debug("get_ports(): " + pformat(ports_dicts))
         return ports_dicts
     #end get_ports
+
+    def get_ports_count(self, context, filters=None):
+        ports_count = self._cfgdb.ports_count(filters)
+        LOG.debug("get_ports_count(): " + str(ports_count))
+        return ports_count
+    #end get_ports_count
 
     def plug_interface(self, tenant_id, net_id, port_id, remote_interface_id):
         """
