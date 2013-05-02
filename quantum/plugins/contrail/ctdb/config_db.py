@@ -11,6 +11,7 @@ import re
 import uuid
 import json
 import time
+import socket
 from netaddr import IPNetwork, IPSet, IPAddress
 
 from quantum.common import constants
@@ -88,8 +89,8 @@ class DBInterface(object):
                         {'Content-type': request.environ['CONTENT_TYPE']})
     #end _relay_request
 
-    def _ensure_vrouter_exists(self, vrouter_id):
-        vrouter_name = "%s" %(vrouter_id)
+    def _ensure_vrouter_exists(self):
+        vrouter_name = "%s" %(socket.gethostname())
         vrouter_obj = VirtualRouter(vrouter_name)
         try:
             id = self._vnc_lib.obj_to_id(vrouter_obj)
@@ -1371,7 +1372,7 @@ class DBInterface(object):
         net_id = port_q['network_id']
         net_obj = self._network_read(net_id)
 
-        vrouter_obj = self._ensure_vrouter_exists(port_q['compute_node_id'])
+        vrouter_obj = self._ensure_vrouter_exists()
         self._ensure_instance_exists(port_q['device_id'], vrouter_obj)
 
         # initialize port object
