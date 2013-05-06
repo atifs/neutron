@@ -11,13 +11,6 @@ from oslo.config import cfg
 class PolicyNotFound(qexception.NotFound):
     message = _("Policy %(id)s could not be found")
 
-def _validate_uuid_or_none(data, valid_values=None):
-    if data is None:
-        return None
-    return attr._validate_regex(data, attr.UUID_PATTERN)
-
-attr.validators['type:uuid_or_none'] = _validate_uuid_or_none
-
 # Attribute Map
 RESOURCE_ATTRIBUTE_MAP = {
     'policys': {

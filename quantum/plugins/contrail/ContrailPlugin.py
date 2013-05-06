@@ -449,6 +449,16 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     #end get_policy_count
 
     # Floating IP API handlers
+    def _make_floatingip_dict(self, floatingip, fields=None):
+        res = {'id': floatingip['id'],
+               'tenant_id': floatingip['tenant_id'],
+               'floating_ip_address': floatingip['floating_ip_address'],
+               'floating_network_id': floatingip['floating_network_id'],
+               'router_id': floatingip['router_id'],
+               'port_id': floatingip['fixed_port_id'],
+               'fixed_ip_address': floatingip['fixed_ip_address']}
+        return self._fields(res, fields)
+
     def create_floatingip(self, context, floatingip):
         fip_info = self._cfgdb.floatingip_create(floatingip['floatingip'])
 
