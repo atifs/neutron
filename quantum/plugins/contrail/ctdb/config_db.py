@@ -33,7 +33,7 @@ class DBInterface(object):
     An instance of this class forwards requests to vnc cfg api (web)server
     """
     Q_URL_PREFIX = '/extensions/ct'
-    def __init__(self, admin_name, admin_password, admin_tenant_name, api_srvr_ip, api_srvr_port):
+    def __init__(self, admin_name, admin_password, admin_tenant_name, api_srvr_ip, api_srvr_port, user_info = None):
         self._api_srvr_ip = api_srvr_ip
         self._api_srvr_port = api_srvr_port
 
@@ -56,7 +56,7 @@ class DBInterface(object):
             try:
                 # TODO remove hardcode
                 self._vnc_lib = VncApi(admin_name, admin_password, admin_tenant_name,
-                                       api_srvr_ip, api_srvr_port, '/')
+                                       api_srvr_ip, api_srvr_port, '/', user_info = user_info)
                 connected = True
             except requests.exceptions.RequestException as e:
                 time.sleep(3)
