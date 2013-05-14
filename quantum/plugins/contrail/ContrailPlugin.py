@@ -41,6 +41,17 @@ def _read_cfg(cfg_parser, section, option, default):
         return val
 #end _read_cfg
 
+def _read_cfg_boolean(cfg_parser, section, option, default):
+        try:
+            val = cfg_parser.getboolean(section, option)
+        except (AttributeError, ValueError,
+                ConfigParser.NoOptionError,
+                ConfigParser.NoSectionError):
+            val = default
+
+        return val
+#end _read_cfg
+
 #TODO define ABC PluginBase for ipam and policy and derive mixin from them
 class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                      floatingip.FloatingIpPluginBase):
@@ -51,7 +62,6 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     supported_extension_aliases = ["ipam", "policy", "security_groups",
                                    "floatingip"]
     _cfgdb = None
-    _operdb = None
     _args = None
     _tenant_id_dict = {}
     _tenant_name_dict = {}
@@ -59,7 +69,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     @classmethod
     def _parse_class_args(cls, cfg_parser):
         cfg_parser.read("/etc/quantum/plugins/contrail/contrail_plugin.ini")
-        cls._multi_tenancy = _read_cfg(cfg_parser, 'APISERVER', 'multi_tenancy', False)
+        cls._multi_tenancy = _read_cfg_boolean(cfg_parser, 'APISERVER', 'multi_tenancy', False)
         cls._admin_token   = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_token', '')
         cls._auth_url      = _read_cfg(cfg_parser, 'KEYSTONE', 'auth_url', '')
         cls._admin_user    = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_user', 'user1')
@@ -81,9 +91,6 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             cls._cfgdb = ctdb.config_db.DBInterface(cls._admin_user, cls._admin_password, cls._admin_tenant_name,
                                                     cfg.CONF.APISERVER.api_server_ip,
                                                     cfg.CONF.APISERVER.api_server_port)
-            # TODO Treat the 2 DBs as logically separate? (same backend for now)
-            cls._operdb = cls._cfgdb
-            
             cls._cfgdb.manager = cls
     #end _connect_to_db
 
@@ -239,7 +246,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             n_dict.update(n_info['q_extra_data'])
             nets_dicts.append(n_dict)
 
-        LOG.debug("get_networks(): " + pformat(nets_dicts))
+        LOG.debug("get_networks(): filters: " + pformat(filters) + " data: " + pformat(nets_dicts))
         return nets_dicts
     #end get_networks
 
@@ -305,7 +312,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             sn_dict.update(sn_info['q_extra_data'])
             subnets_dicts.append(sn_dict)
 
-        LOG.debug("get_subnets(): " + pformat(subnets_dicts))
+        LOG.debug("get_subnets(): filters: " + pformat(filters) + " data: " + pformat(subnets_dicts))
         return subnets_dicts
     #end get_subnets
 
@@ -530,7 +537,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         """
         Creates a port on the specified Virtual Network.
         """
-        port_info = self._operdb.port_create(port['port'])
+        port_info = self._cfgdb.port_create(port['port'])
 
         # verify transformation is conforming to api
         port_dict = self._make_port_dict(port_info['q_api_data'])
@@ -542,7 +549,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     #end create_port
 
     def get_port(self, context, port_id, fields = None):
-        port_info = self._operdb.port_read(port_id)
+        port_info = self._cfgdb.port_read(port_id)
 
         # verify transformation is conforming to api
         port_dict = self._make_port_dict(port_info['q_api_data'], fields)
@@ -557,7 +564,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         """
         Updates the attributes of a port on the specified Virtual Network.
         """
-        port_info = self._operdb.port_update(port_id, port['port'])
+        port_info = self._cfgdb.port_update(port_id, port['port'])
 
         # verify transformation is conforming to api
         port_dict = self._make_port_dict(port_info['q_api_data'])
@@ -575,7 +582,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         the remote interface is first un-plugged and then the port
         is deleted.
         """
-        self._operdb.port_delete(port_id)
+        self._cfgdb.port_delete(port_id)
         LOG.debug("delete_port(): " + pformat(port_id))
     #end delete_port
 
@@ -585,7 +592,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         specified Virtual Network.
         """
         # TODO validate network ownership of net_id by tenant_id
-        ports_info = self._operdb.port_list(filters)
+        ports_info = self._cfgdb.port_list(filters)
 
         ports_dicts = []
         for p_info in ports_info:
@@ -595,7 +602,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             p_dict.update(p_info['q_extra_data'])
             ports_dicts.append(p_dict)
 
-        LOG.debug("get_ports(): " + pformat(ports_dicts))
+        LOG.debug("get_ports(): filter: " +pformat(filters) + 'data: ' + pformat(ports_dicts))
         return ports_dicts
     #end get_ports
 

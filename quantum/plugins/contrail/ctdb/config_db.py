@@ -480,8 +480,8 @@ class DBInterface(object):
         self._vnc_lib.kv_delete(subnet_id)
         self._vnc_lib.kv_delete(subnet_key)
         try:
-            self._db_cache['q_subnet_maps'][subnet_id] = subnet_key
-            self._db_cache['q_subnet_maps'][subnet_key] = subnet_id
+            del self._db_cache['q_subnet_maps'][subnet_id]
+            del self._db_cache['q_subnet_maps'][subnet_key]
         except KeyError:
             pass
     #end _subnet_vnc_delete_mapping
@@ -1360,7 +1360,7 @@ class DBInterface(object):
     # TODO add obj param and let caller use below only as a converter
     def port_read(self, port_id):
         try:
-            return self._db_cache['q_ports']['port_id']
+            return self._db_cache['q_ports'][port_id]
         except KeyError:
             pass
 
