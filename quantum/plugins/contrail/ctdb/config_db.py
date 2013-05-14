@@ -1449,7 +1449,10 @@ class DBInterface(object):
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
-                port_info = self.port_read(vm_intf['uuid'])
+                try:
+                    port_info = self.port_read(vm_intf['uuid'])
+                except NoIdError:
+                    continue
                 ret_q_ports.append(port_info)
 
         return ret_q_ports
