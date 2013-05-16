@@ -979,7 +979,7 @@ class DBInterface(object):
                 # read all networks in project, and prune below
                 project_ids = filters['tenant_id']
                 for p_id in project_ids:
-                    if 'external' in filters:
+                    if 'router:external' in filters:
                         all_nets.append(self._fip_pool_ref_networks(p_id))
                     else:
                         project_nets = self._network_list_project(p_id)
@@ -989,7 +989,7 @@ class DBInterface(object):
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:
                 proj_id = project['uuid']
-                if filters and 'external' in filters:
+                if filters and 'router:external' in filters:
                     all_nets.append(self._fip_pool_ref_networks(proj_id))
                 else:
                     project_nets = self._network_list_project(proj_id)
@@ -1341,8 +1341,21 @@ class DBInterface(object):
         # Find networks, get floatingip backrefs and return
         ret_list = []
 
-        if filters and filters.has_key('tenant_id'):
-            proj_ids = [str(uuid.UUID(id)) for id in filters['tenant_id']]
+        if filters:
+            if 'tenant_id' in filters:
+                proj_ids = [str(uuid.UUID(id)) for id in filters['tenant_id']]
+            elif 'port_id' in filters:
+                # required ports are specified, just read and populate ret_list
+                # prune is skipped because proj_objs is empty
+                proj_ids = []
+                for port_id in filters['port_id']:
+                    port_obj = self._virtual_machine_interface_read(port_id = port_id)
+                    fip_back_refs = port_obj.get_floating_ip_back_refs()
+                    if not fip_back_refs:
+                        continue
+                    for fip_back_ref in fip_back_refs:
+                        fip_obj = self._vnc_lib.floating_ip_read(id = fip_back_ref['uuid'])
+                        ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
         else: # no filters
             dom_projects = self._project_list_domain(None)
             proj_ids = [proj['uuid'] for proj in dom_projects]
@@ -1468,8 +1481,10 @@ class DBInterface(object):
     #end port_delete
 
     def port_list(self, filters = None):
+        #import pdb; pdb.set_trace()
         project_obj = None
         ret_q_ports = []
+        all_project_ids = []
 
         # TODO used to find dhcp server field. support later...
         if filters.has_key('device_owner'):
@@ -1477,10 +1492,20 @@ class DBInterface(object):
 
         if not filters.has_key('device_id'):
             # Listing from back references
-            for proj_id in filters.get('tenant_id', []):
+            if  not filters:
+                # no filters => return all ports!
+                all_projects = self._project_list_domain(None)
+                all_project_ids = [project['uuid'] for project in all_projects]
+            elif 'tenant_id' in filters:
+                all_project_ids = filters.get('tenant_id')
+            
+            for proj_id in all_project_ids:
                 proj_ports = self._port_list_project(proj_id)
                 for port in proj_ports:
-                    port_info = self.port_read(port['id'])
+                    try:
+                        port_info = self.port_read(port['id'])
+                    except NoIdError:
+                        continue
                     ret_q_ports.append(port_info)
 
             for net_id in filters.get('network_id', []):
