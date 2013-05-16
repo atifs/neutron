@@ -34,7 +34,7 @@ class DBInterface(object):
     An instance of this class forwards requests to vnc cfg api (web)server
     """
     Q_URL_PREFIX = '/extensions/ct'
-    def __init__(self, admin_name, admin_password, admin_tenant_name, api_srvr_ip, api_srvr_port):
+    def __init__(self, admin_name, admin_password, admin_tenant_name, api_srvr_ip, api_srvr_port, user_info = None):
         self._api_srvr_ip = api_srvr_ip
         self._api_srvr_port = api_srvr_port
 
@@ -57,7 +57,7 @@ class DBInterface(object):
             try:
                 # TODO remove hardcode
                 self._vnc_lib = VncApi(admin_name, admin_password, admin_tenant_name,
-                                       api_srvr_ip, api_srvr_port, '/')
+                                       api_srvr_ip, api_srvr_port, '/', user_info = user_info)
                 connected = True
             except requests.exceptions.RequestException as e:
                 time.sleep(3)
@@ -89,19 +89,7 @@ class DBInterface(object):
                         {'Content-type': request.environ['CONTENT_TYPE']})
     #end _relay_request
 
-    def _ensure_vrouter_exists(self):
-        vrouter_name = "%s" %(socket.gethostname())
-        vrouter_obj = VirtualRouter(vrouter_name)
-        try:
-            id = self._vnc_lib.obj_to_id(vrouter_obj)
-            vrouter_obj = self._vnc_lib.virtual_router_read(id = id)
-        except NoIdError: # vrouter/server doesn't exist, create it
-            self._vnc_lib.virtual_router_create(vrouter_obj)
-
-        return vrouter_obj
-    #end _ensure_vrouter_exists
-
-    def _ensure_instance_exists(self, instance_id, vrouter_obj):
+    def _ensure_instance_exists(self, instance_id):
         instance_name = instance_id
         instance_obj = VirtualMachine(instance_name)
         try:
@@ -110,8 +98,6 @@ class DBInterface(object):
         except NoIdError: # instance doesn't exist, create it
             instance_obj.uuid = instance_id
             self._vnc_lib.virtual_machine_create(instance_obj)
-            vrouter_obj.add_virtual_machine(instance_obj)
-            self._vnc_lib.virtual_router_update(vrouter_obj)
 
         return instance_obj
     #end _ensure_instance_exists
@@ -495,8 +481,8 @@ class DBInterface(object):
         self._vnc_lib.kv_delete(subnet_id)
         self._vnc_lib.kv_delete(subnet_key)
         try:
-            self._db_cache['q_subnet_maps'][subnet_id] = subnet_key
-            self._db_cache['q_subnet_maps'][subnet_key] = subnet_id
+            del self._db_cache['q_subnet_maps'][subnet_id]
+            del self._db_cache['q_subnet_maps'][subnet_key]
         except KeyError:
             pass
     #end _subnet_vnc_delete_mapping
@@ -1385,8 +1371,7 @@ class DBInterface(object):
         net_id = port_q['network_id']
         net_obj = self._network_read(net_id)
 
-        vrouter_obj = self._ensure_vrouter_exists()
-        self._ensure_instance_exists(port_q['device_id'], vrouter_obj)
+        self._ensure_instance_exists(port_q['device_id'])
 
         # initialize port object
         port_obj = self._port_quantum_to_vnc(port_q, net_obj, CREATE)
@@ -1420,7 +1405,7 @@ class DBInterface(object):
     # TODO add obj param and let caller use below only as a converter
     def port_read(self, port_id):
         try:
-            return self._db_cache['q_ports']['port_id']
+            return self._db_cache['q_ports'][port_id]
         except KeyError:
             pass
 
@@ -1466,12 +1451,6 @@ class DBInterface(object):
         inst_obj = self._vnc_lib.virtual_machine_read(fq_name = inst_fq_name)
         inst_intfs = inst_obj.get_virtual_machine_interfaces()
         if not inst_intfs:
-            # remove ref from vrouter
-            vrouter_back_refs = inst_obj.get_virtual_router_back_refs()
-            vrouter_obj = self._vnc_lib.virtual_router_read(id = vrouter_back_refs[0]['uuid'])
-            vrouter_obj.del_virtual_machine(inst_obj)
-            self._vnc_lib.virtual_router_update(vrouter_obj)
-
             self._vnc_lib.virtual_machine_delete(id = inst_obj.uuid)
 
         try:
@@ -1527,7 +1506,10 @@ class DBInterface(object):
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
-                port_info = self.port_read(vm_intf['uuid'])
+                try:
+                    port_info = self.port_read(vm_intf['uuid'])
+                except NoIdError:
+                    continue
                 ret_q_ports.append(port_info)
 
         return ret_q_ports
