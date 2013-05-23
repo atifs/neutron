@@ -986,7 +986,10 @@ class DBInterface(object):
                                                 proj_net_fq_name):
                     continue
 
-                net_info = self.network_read(proj_net['uuid'])
+                try:
+                    net_info = self.network_read(proj_net['uuid'])
+                except exceptions.NetworkNotFound:
+                    continue
                 ret_list.append(net_info)
 
         return ret_list
