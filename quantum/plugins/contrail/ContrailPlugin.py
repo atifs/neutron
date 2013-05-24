@@ -183,45 +183,57 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Creates a new Virtual Network, and assigns it
         a symbolic name.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        net_info = cfgdb.network_create(network['network'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            net_info = cfgdb.network_create(network['network'])
 
-        # verify transformation is conforming to api
-        net_dict = self._make_network_dict(net_info['q_api_data'])
+            # verify transformation is conforming to api
+            net_dict = self._make_network_dict(net_info['q_api_data'])
 
-        net_dict.update(net_info['q_extra_data'])
+            net_dict.update(net_info['q_extra_data'])
 
-        LOG.debug("create_network(): " + pformat(net_dict) + "\n")
-        return net_dict
+            LOG.debug("create_network(): " + pformat(net_dict) + "\n")
+            return net_dict
+        except Exception as e:
+            LOG.error("create_network(): Exception - " + str(e) + "\n")
+            raise e
     #end create_network
 
     def get_network(self, context, id, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        net_info = cfgdb.network_read(id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            net_info = cfgdb.network_read(id)
 
-        # verify transformation is conforming to api
-        net_dict = self._make_network_dict(net_info['q_api_data'], fields)
+            # verify transformation is conforming to api
+            net_dict = self._make_network_dict(net_info['q_api_data'], fields)
 
-        net_dict.update(net_info['q_extra_data'])
+            net_dict.update(net_info['q_extra_data'])
 
-        LOG.debug("get_network(): " + pformat(net_dict))
-        return self._fields(net_dict, fields)
+            LOG.debug("get_network(): " + pformat(net_dict))
+            return self._fields(net_dict, fields)
+        except Exception as e:
+            LOG.error("get_network(): Exception - " + str(e) + "\n")
+            raise e
     #end get_network 
 
     def update_network(self, context, net_id, network):
         """
         Updates the attributes of a particular Virtual Network.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        net_info = cfgdb.network_update(net_id, network['network'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            net_info = cfgdb.network_update(net_id, network['network'])
 
-        # verify transformation is conforming to api
-        net_dict = self._make_network_dict(net_info['q_api_data'])
+            # verify transformation is conforming to api
+            net_dict = self._make_network_dict(net_info['q_api_data'])
 
-        net_dict.update(net_info['q_extra_data'])
+            net_dict.update(net_info['q_extra_data'])
 
-        LOG.debug("update_network(): " + pformat(net_dict))
-        return net_dict
+            LOG.debug("update_network(): " + pformat(net_dict))
+            return net_dict
+        except Exception as e:
+            LOG.error("update_network(): Exception - " + str(e) + "\n")
+            raise e
     #end update_network
 
     def delete_network(self, context, net_id):
@@ -229,91 +241,119 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Deletes the network with the specified network identifier
         belonging to the specified tenant.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        cfgdb.network_delete(net_id)
-        LOG.debug("delete_network(): " + pformat(net_id))
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.network_delete(net_id)
+            LOG.debug("delete_network(): " + pformat(net_id))
+        except Exception as e:
+            LOG.error("delete_network(): Exception - " + str(e) + "\n")
+            raise e
     #end delete_network
 
     def get_networks(self, context, filters=None, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        nets_info = cfgdb.network_list(filters)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            nets_info = cfgdb.network_list(filters)
 
-        nets_dicts = []
-        for n_info in nets_info:
-            # verify transformation is conforming to api
-            n_dict = self._make_network_dict(n_info['q_api_data'], fields)
+            nets_dicts = []
+            for n_info in nets_info:
+                # verify transformation is conforming to api
+                n_dict = self._make_network_dict(n_info['q_api_data'], fields)
 
-            n_dict.update(n_info['q_extra_data'])
-            nets_dicts.append(n_dict)
+                n_dict.update(n_info['q_extra_data'])
+                nets_dicts.append(n_dict)
 
-        LOG.debug("get_networks(): filters: " + pformat(filters) + " data: " + pformat(nets_dicts))
-        return nets_dicts
+            LOG.debug("get_networks(): filters: " + pformat(filters) + " data: " + pformat(nets_dicts))
+            return nets_dicts
+        except Exception as e:
+            LOG.error("get_networks(): Exception - " + str(e) + "\n")
+            raise e
     #end get_networks
 
     # Subnet API handlers
     def create_subnet(self, context, subnet):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        subnet_info = cfgdb.subnet_create(subnet['subnet'])
-        
-        # verify transformation is conforming to api
-        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            subnet_info = cfgdb.subnet_create(subnet['subnet'])
+            
+            # verify transformation is conforming to api
+            subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
 
-        subnet_dict.update(subnet_info['q_extra_data'])
+            subnet_dict.update(subnet_info['q_extra_data'])
 
-        LOG.debug("create_subnet(): " + pformat(subnet_dict))
-        return subnet_dict
+            LOG.debug("create_subnet(): " + pformat(subnet_dict))
+            return subnet_dict
+        except Exception as e:
+            LOG.error("create_subnet(): Exception - " + str(e) + "\n")
+            raise e
     #end create_subnet
 
     def get_subnet(self, context, subnet_id, fields = None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        subnet_info = cfgdb.subnet_read(subnet_id)
-        
-        # verify transformation is conforming to api
-        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'], fields)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            subnet_info = cfgdb.subnet_read(subnet_id)
+            
+            # verify transformation is conforming to api
+            subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'], fields)
 
-        subnet_dict.update(subnet_info['q_extra_data'])
+            subnet_dict.update(subnet_info['q_extra_data'])
 
-        LOG.debug("get_subnet(): " + pformat(subnet_dict)) 
-        return self._fields(subnet_dict, fields)
+            LOG.debug("get_subnet(): " + pformat(subnet_dict)) 
+            return self._fields(subnet_dict, fields)
+        except Exception as e:
+            LOG.error("create_subnet(): Exception - " + str(e) + "\n")
+            raise e
     #end get_subnet
 
     def update_subnet(self, context, subnet_id, subnet):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        subnet_info = cfgdb.subnet_update(subnet_id, subnet['subnet'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            subnet_info = cfgdb.subnet_update(subnet_id, subnet['subnet'])
 
-        # verify transformation is conforming to api
-        subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
+            # verify transformation is conforming to api
+            subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'])
 
-        subnet_dict.update(subnet_info['q_extra_data'])
+            subnet_dict.update(subnet_info['q_extra_data'])
 
-        LOG.debug("update_subnet(): " + pformat(subnet_dict))
-        return subnet_dict
+            LOG.debug("update_subnet(): " + pformat(subnet_dict))
+            return subnet_dict
+        except Exception as e:
+            LOG.error("update_subnet(): Exception - " + str(e) + "\n")
+            raise e
     #end update_subnet
 
     def delete_subnet(self, context, subnet_id):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        cfgdb.subnet_delete(subnet_id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.subnet_delete(subnet_id)
 
-        LOG.debug("update_subnet(): " + pformat(subnet_id))
+            LOG.debug("delete_subnet(): " + pformat(subnet_id))
+        except Exception as e:
+            LOG.error("delete_subnet(): Exception - " + str(e) + "\n")
+            raise e
     #end delete_subnet
 
     def get_subnets(self, context, filters = None, fields = None):
         """
         Called from Quantum API -> get_<resource>
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        subnets_info = cfgdb.subnets_list(filters)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            subnets_info = cfgdb.subnets_list(filters)
 
-        subnets_dicts = []
-        for sn_info in subnets_info:
-            # verify transformation is conforming to api
-            sn_dict = self._make_subnet_dict(sn_info['q_api_data'], fields)
+            subnets_dicts = []
+            for sn_info in subnets_info:
+                # verify transformation is conforming to api
+                sn_dict = self._make_subnet_dict(sn_info['q_api_data'], fields)
 
-            sn_dict.update(sn_info['q_extra_data'])
-            subnets_dicts.append(sn_dict)
+                sn_dict.update(sn_info['q_extra_data'])
+                subnets_dicts.append(sn_dict)
 
-        LOG.debug("get_subnets(): filters: " + pformat(filters) + " data: " + pformat(subnets_dicts))
-        return subnets_dicts
+            LOG.debug("get_subnets(): filters: " + pformat(filters) + " data: " + pformat(subnets_dicts))
+            return subnets_dicts
+        except Exception as e:
+            LOG.error("get_subnets(): Exception - " + str(e) + "\n")
+            raise e
     #end get_subnets
 
     # Ipam API handlers
@@ -322,75 +362,95 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Creates a new IPAM, and assigns it
         a symbolic name.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        ipam_info = cfgdb.ipam_create(ipam['ipam'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ipam_info = cfgdb.ipam_create(ipam['ipam'])
 
-        # TODO add this in extension
-        ##verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        ipam_dict = ipam_info['q_api_data']
-        ipam_dict.update(ipam_info['q_extra_data'])
+            # TODO add this in extension
+            ##verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            ipam_dict = ipam_info['q_api_data']
+            ipam_dict.update(ipam_info['q_extra_data'])
 
-        LOG.debug("create_ipam(): " + pformat(ipam_dict))
-        return ipam_dict
+            LOG.debug("create_ipam(): " + pformat(ipam_dict))
+            return ipam_dict
+        except Exception as e:
+            LOG.error("create_ipam(): Exception - " + str(e) + "\n")
+            raise e
     #end create_ipam
 
     def get_ipam(self, context, id, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        ipam_info = cfgdb.ipam_read(id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ipam_info = cfgdb.ipam_read(id)
 
-        # TODO add this in extension
-        ## verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        ipam_dict = ipam_info['q_api_data']
-        ipam_dict.update(ipam_info['q_extra_data'])
+            # TODO add this in extension
+            ## verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            ipam_dict = ipam_info['q_api_data']
+            ipam_dict.update(ipam_info['q_extra_data'])
 
-        LOG.debug("get_ipam(): " + pformat(ipam_dict))
-        return ipam_dict
+            LOG.debug("get_ipam(): " + pformat(ipam_dict))
+            return ipam_dict
+        except Exception as e:
+            LOG.error("get_ipam(): Exception - " + str(e) + "\n")
+            raise e
     #end get_ipam 
 
     def update_ipam(self, context, id, ipam):
         """
         Updates the attributes of a particular IPAM.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        ipam_info = cfgdb.ipam_update(id, ipam)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ipam_info = cfgdb.ipam_update(id, ipam)
 
-        # TODO add this in extension
-        ## verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        ipam_dict = ipam_info['q_api_data']
-        ipam_dict.update(ipam_info['q_extra_data'])
+            # TODO add this in extension
+            ## verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            ipam_dict = ipam_info['q_api_data']
+            ipam_dict.update(ipam_info['q_extra_data'])
 
-        LOG.debug("update_ipam(): " + pformat(ipam_dict))
-        return ipam_dict
+            LOG.debug("update_ipam(): " + pformat(ipam_dict))
+            return ipam_dict
+        except Exception as e:
+            LOG.error("update_ipam(): Exception - " + str(e) + "\n")
+            raise e
     #end update_ipam
 
     def delete_ipam(self, context, ipam_id):
         """
         Deletes the ipam with the specified identifier
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        cfgdb.ipam_delete(ipam_id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.ipam_delete(ipam_id)
 
-        LOG.debug("delete_ipam(): " + pformat(ipam_id))
+            LOG.debug("delete_ipam(): " + pformat(ipam_id))
+        except Exception as e:
+            LOG.error("delete_ipam(): Exception - " + str(e) + "\n")
+            raise e
     #end delete_ipam
 
     def get_ipams(self, context, filters=None, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        ipams_info = cfgdb.ipam_list(filters)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ipams_info = cfgdb.ipam_list(filters)
 
-        ipams_dicts = []
-        for ipam_info in ipams_info:
-            # TODO add this in extension
-            # verify transformation is conforming to api
-            #ipam_dict = self._make_ipam_dict(ipam_info)
-            ipam_dict = ipam_info['q_api_data']
-            ipam_dict.update(ipam_info['q_extra_data'])
-            ipams_dicts.append(ipam_dict)
+            ipams_dicts = []
+            for ipam_info in ipams_info:
+                # TODO add this in extension
+                # verify transformation is conforming to api
+                #ipam_dict = self._make_ipam_dict(ipam_info)
+                ipam_dict = ipam_info['q_api_data']
+                ipam_dict.update(ipam_info['q_extra_data'])
+                ipams_dicts.append(ipam_dict)
 
-        LOG.debug("get_ipams(): " + pformat(ipams_dicts))
-        return ipams_dicts
+            LOG.debug("get_ipams(): " + pformat(ipams_dicts))
+            return ipams_dicts
+        except Exception as e:
+            LOG.error("get_ipams(): Exception - " + str(e) + "\n")
+            raise e
     #end get_ipams
 
     # Policy API handlers
@@ -399,137 +459,177 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Creates a new Policy, and assigns it
         a symbolic name.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        policy_info = cfgdb.policy_create(policy['policy'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            policy_info = cfgdb.policy_create(policy['policy'])
 
-        # TODO add this in extension
-        ##verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        policy_dict = policy_info['q_api_data']
-        policy_dict.update(policy_info['q_extra_data'])
+            # TODO add this in extension
+            ##verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            policy_dict = policy_info['q_api_data']
+            policy_dict.update(policy_info['q_extra_data'])
 
-        LOG.debug("create_policy(): " + pformat(policy_dict))
-        return policy_dict
+            LOG.debug("create_policy(): " + pformat(policy_dict))
+            return policy_dict
+        except Exception as e:
+            LOG.error("create_policy(): Exception - " + str(e) + "\n")
+            raise e
     #end create_policy
 
     def get_policy(self, context, id, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        policy_info = cfgdb.policy_read(id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            policy_info = cfgdb.policy_read(id)
 
-        # TODO add this in extension
-        ## verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        policy_dict = policy_info['q_api_data']
-        policy_dict.update(policy_info['q_extra_data'])
+            # TODO add this in extension
+            ## verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            policy_dict = policy_info['q_api_data']
+            policy_dict.update(policy_info['q_extra_data'])
 
-        LOG.debug("get_policy(): " + pformat(policy_dict)) 
-        return policy_dict
+            LOG.debug("get_policy(): " + pformat(policy_dict)) 
+            return policy_dict
+        except Exception as e:
+            LOG.error("get_policy(): Exception - " + str(e) + "\n")
+            raise e
     #end get_policy
 
     def update_policy(self, context, id, policy):
         """
         Updates the attributes of a particular Policy.
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        policy_info = cfgdb.policy_update(id, policy)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            policy_info = cfgdb.policy_update(id, policy)
 
-        # TODO add this in extension
-        ## verify transformation is conforming to api
-        #ipam_dict = self._make_ipam_dict(ipam_info)
-        policy_dict = policy_info['q_api_data']
-        policy_dict.update(policy_info['q_extra_data'])
+            # TODO add this in extension
+            ## verify transformation is conforming to api
+            #ipam_dict = self._make_ipam_dict(ipam_info)
+            policy_dict = policy_info['q_api_data']
+            policy_dict.update(policy_info['q_extra_data'])
 
-        LOG.debug("update_policy(): " + pformat(policy_dict))
-        return policy_dict
+            LOG.debug("update_policy(): " + pformat(policy_dict))
+            return policy_dict
+        except Exception as e:
+            LOG.error("update_policy(): Exception - " + str(e) + "\n")
+            raise e
     #end update_policy
 
     def delete_policy(self, context, policy_id):
         """
         Deletes the Policy with the specified identifier
         """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        cfgdb.policy_delete(policy_id)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.policy_delete(policy_id)
 
-        LOG.debug("delete_policy(): " + pformat(policy_id)) 
+            LOG.debug("delete_policy(): " + pformat(policy_id)) 
+        except Exception as e:
+            LOG.error("delete_policy(): Exception - " + str(e) + "\n")
+            raise e
     #end delete_policy
 
     def get_policys(self, context, filters=None, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        policys_info = cfgdb.policy_list(filters)
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            policys_info = cfgdb.policy_list(filters)
 
-        policys_dicts = []
-        for policy_info in policys_info:
-            # TODO add this in extension
-            # verify transformation is conforming to api
-            #ipam_dict = self._make_ipam_dict(ipam_info)
-            policy_dict = policy_info['q_api_data']
-            policy_dict.update(policy_info['q_extra_data'])
-            policys_dicts.append(policy_dict)
+            policys_dicts = []
+            for policy_info in policys_info:
+                # TODO add this in extension
+                # verify transformation is conforming to api
+                #ipam_dict = self._make_ipam_dict(ipam_info)
+                policy_dict = policy_info['q_api_data']
+                policy_dict.update(policy_info['q_extra_data'])
+                policys_dicts.append(policy_dict)
 
-        LOG.debug("get_policys(): " + pformat(policys_dicts))
-        return policys_dicts
+            LOG.debug("get_policys(): " + pformat(policys_dicts))
+            return policys_dicts
+        except Exception as e:
+            LOG.error("get_policys(): Exception - " + str(e) + "\n")
+            raise e
     #end get_policys
 
     # Floating IP API handlers
     def create_floatingip(self, context, floatingip):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        fip_info = cfgdb.floatingip_create(floatingip['floatingip'])
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            fip_info = cfgdb.floatingip_create(floatingip['floatingip'])
 
-        # verify transformation is conforming to api
-        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
-
-        fip_dict.update(fip_info['q_extra_data'])
-
-        LOG.debug("create_floatingip(): " + pformat(fip_dict))
-        return fip_dict
-    #end create_floatingip
-
-    def update_floatingip(self, context, fip_id, floatingip):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        fip_info = cfgdb.floatingip_update(fip_id, floatingip['floatingip'])
-
-        # verify transformation is conforming to api
-        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
-
-        fip_dict.update(fip_info['q_extra_data'])
-
-        LOG.debug("update_floatingip(): " + pformat(fip_dict)) 
-        return fip_dict
-    #end update_floatingip
-
-    def get_floatingip(self, context, id, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        fip_info = cfgdb.floatingip_read(id)
-
-        # verify transformation is conforming to api
-        fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
-
-        fip_dict.update(fip_info['q_extra_data'])
-
-        LOG.debug("get_floatingip(): " + pformat(fip_dict))
-        return fip_dict
-    #end get_floatingip
-
-    def delete_floatingip(self, context, fip_id):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        cfgdb.floatingip_delete(fip_id)
-        LOG.debug("delete_floating(): " + pformat(fip_id)) 
-    #end delete_floatingip
-
-    def get_floatingips(self, context, filters=None, fields=None):
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        fips_info = cfgdb.floatingip_list(filters)
-
-        fips_dicts = []
-        for fip_info in fips_info:
             # verify transformation is conforming to api
             fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
 
             fip_dict.update(fip_info['q_extra_data'])
-            fips_dicts.append(fip_dict)
 
-        LOG.debug("get_floatingips(): " + pformat(fips_dicts)) 
-        return fips_dicts
+            LOG.debug("create_floatingip(): " + pformat(fip_dict))
+            return fip_dict
+        except Exception as e:
+            LOG.error("create_floatingip(): Exception - " + str(e) + "\n")
+            raise e
+    #end create_floatingip
+
+    def update_floatingip(self, context, fip_id, floatingip):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            fip_info = cfgdb.floatingip_update(fip_id, floatingip['floatingip'])
+
+            # verify transformation is conforming to api
+            fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+            fip_dict.update(fip_info['q_extra_data'])
+
+            LOG.debug("update_floatingip(): " + pformat(fip_dict)) 
+            return fip_dict
+        except Exception as e:
+            LOG.error("update_floatingip(): Exception - " + str(e) + "\n")
+            raise e
+    #end update_floatingip
+
+    def get_floatingip(self, context, id, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            fip_info = cfgdb.floatingip_read(id)
+
+            # verify transformation is conforming to api
+            fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+            fip_dict.update(fip_info['q_extra_data'])
+
+            LOG.debug("get_floatingip(): " + pformat(fip_dict))
+            return fip_dict
+        except Exception as e:
+            LOG.error("get_floatingip(): Exception - " + str(e) + "\n")
+            raise e
+    #end get_floatingip
+
+    def delete_floatingip(self, context, fip_id):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.floatingip_delete(fip_id)
+            LOG.debug("delete_floating(): " + pformat(fip_id)) 
+        except Exception as e:
+            LOG.error("delete_floatingip(): Exception - " + str(e) + "\n")
+            raise e
+    #end delete_floatingip
+
+    def get_floatingips(self, context, filters=None, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            fips_info = cfgdb.floatingip_list(filters)
+
+            fips_dicts = []
+            for fip_info in fips_info:
+                # verify transformation is conforming to api
+                fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
+
+                fip_dict.update(fip_info['q_extra_data'])
+                fips_dicts.append(fip_dict)
+
+            LOG.debug("get_floatingips(): " + pformat(fips_dicts)) 
+            return fips_dicts
+        except Exception as e:
+            LOG.error("get_floatingips(): Exception - " + str(e) + "\n")
+            raise e
     #end get_floatingips
 
     # Port API handlers
@@ -537,42 +637,54 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         """
         Creates a port on the specified Virtual Network.
         """
-        port_info = self._cfgdb.port_create(port['port'])
+        try:
+            port_info = self._cfgdb.port_create(port['port'])
 
-        # verify transformation is conforming to api
-        port_dict = self._make_port_dict(port_info['q_api_data'])
+            # verify transformation is conforming to api
+            port_dict = self._make_port_dict(port_info['q_api_data'])
 
-        port_dict.update(port_info['q_extra_data'])
+            port_dict.update(port_info['q_extra_data'])
 
-        LOG.debug("create_port(): " + pformat(port_dict)) 
-        return port_dict
+            LOG.debug("create_port(): " + pformat(port_dict)) 
+            return port_dict
+        except Exception as e:
+            LOG.error("create_port(): Exception - " + str(e) + "\n")
+            raise e
     #end create_port
 
     def get_port(self, context, port_id, fields = None):
-        port_info = self._cfgdb.port_read(port_id)
+        try:
+            port_info = self._cfgdb.port_read(port_id)
 
-        # verify transformation is conforming to api
-        port_dict = self._make_port_dict(port_info['q_api_data'], fields)
+            # verify transformation is conforming to api
+            port_dict = self._make_port_dict(port_info['q_api_data'], fields)
 
-        port_dict.update(port_info['q_extra_data'])
+            port_dict.update(port_info['q_extra_data'])
 
-        LOG.debug("get_port(): " + pformat(port_dict))
-        return self._fields(port_dict, fields)
+            LOG.debug("get_port(): " + pformat(port_dict))
+            return self._fields(port_dict, fields)
+        except Exception as e:
+            LOG.error("get_port(): Exception - " + str(e) + "\n")
+            raise e
     #end get_port
 
     def update_port(self, context, port_id, port):
         """
         Updates the attributes of a port on the specified Virtual Network.
         """
-        port_info = self._cfgdb.port_update(port_id, port['port'])
+        try:
+            port_info = self._cfgdb.port_update(port_id, port['port'])
 
-        # verify transformation is conforming to api
-        port_dict = self._make_port_dict(port_info['q_api_data'])
+            # verify transformation is conforming to api
+            port_dict = self._make_port_dict(port_info['q_api_data'])
 
-        port_dict.update(port_info['q_extra_data'])
+            port_dict.update(port_info['q_extra_data'])
 
-        LOG.debug("update_port(): " + pformat(port_dict)) 
-        return port_dict
+            LOG.debug("update_port(): " + pformat(port_dict)) 
+            return port_dict
+        except Exception as e:
+            LOG.error("update_port(): Exception - " + str(e) + "\n")
+            raise e
     #end update_port
 
     def delete_port(self, context, port_id):
@@ -582,8 +694,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         the remote interface is first un-plugged and then the port
         is deleted.
         """
-        self._cfgdb.port_delete(port_id)
-        LOG.debug("delete_port(): " + pformat(port_id))
+        try:
+            self._cfgdb.port_delete(port_id)
+            LOG.debug("delete_port(): " + pformat(port_id))
+        except Exception as e:
+            LOG.error("delete_port(): Exception - " + str(e) + "\n")
+            raise e
     #end delete_port
 
     def get_ports(self, context, filters=None, fields = None):
@@ -591,19 +707,23 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Retrieves all port identifiers belonging to the
         specified Virtual Network.
         """
-        # TODO validate network ownership of net_id by tenant_id
-        ports_info = self._cfgdb.port_list(filters)
+        try:
+            # TODO validate network ownership of net_id by tenant_id
+            ports_info = self._cfgdb.port_list(filters)
 
-        ports_dicts = []
-        for p_info in ports_info:
-            # verify transformation is conforming to api
-            p_dict = self._make_port_dict(p_info['q_api_data'], fields)
+            ports_dicts = []
+            for p_info in ports_info:
+                # verify transformation is conforming to api
+                p_dict = self._make_port_dict(p_info['q_api_data'], fields)
 
-            p_dict.update(p_info['q_extra_data'])
-            ports_dicts.append(p_dict)
+                p_dict.update(p_info['q_extra_data'])
+                ports_dicts.append(p_dict)
 
-        LOG.debug("get_ports(): filter: " +pformat(filters) + 'data: ' + pformat(ports_dicts))
-        return ports_dicts
+            LOG.debug("get_ports(): filter: " +pformat(filters) + 'data: ' + pformat(ports_dicts))
+            return ports_dicts
+        except Exception as e:
+            LOG.error("get_ports(): Exception - " + str(e) + "\n")
+            raise e
     #end get_ports
 
     def plug_interface(self, tenant_id, net_id, port_id, remote_interface_id):
