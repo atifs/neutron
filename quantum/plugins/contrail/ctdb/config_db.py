@@ -138,7 +138,8 @@ class DBInterface(object):
     def _virtual_network_read(self, net_id = None, fq_name = None):
         if net_id:
             try:
-                return self._db_cache['vnc_networks'][net_id]
+                # return self._db_cache['vnc_networks'][net_id]
+                raise KeyError
             except KeyError:
                 net_obj = self._vnc_lib.virtual_network_read(id = net_id)
                 fq_name_str = json.dumps(net_obj.get_fq_name())
@@ -149,7 +150,8 @@ class DBInterface(object):
         if fq_name:
             fq_name_str = json.dumps(fq_name)
             try:
-                return self._db_cache['vnc_networks'][fq_name_str]
+                # return self._db_cache['vnc_networks'][fq_name_str]
+                raise KeyError
             except KeyError:
                 net_obj = self._vnc_lib.virtual_network_read(fq_name = fq_name)
                 self._db_cache['vnc_networks'][fq_name_str] = net_obj
@@ -195,7 +197,8 @@ class DBInterface(object):
     def _virtual_machine_interface_read(self, port_id = None, fq_name = None):
         if port_id:
             try:
-                return self._db_cache['vnc_ports'][port_id]
+                # return self._db_cache['vnc_ports'][port_id]
+                raise KeyError
             except KeyError:
                 port_obj = self._vnc_lib.virtual_machine_interface_read(id = port_id)
                 fq_name_str = json.dumps(port_obj.get_fq_name())
@@ -206,7 +209,8 @@ class DBInterface(object):
         if fq_name:
             fq_name_str = json.dumps(fq_name)
             try:
-                return self._db_cache['vnc_ports'][fq_name_str]
+                # return self._db_cache['vnc_ports'][fq_name_str]
+                raise KeyError
             except KeyError:
                 port_obj = self._vnc_lib.virtual_machine_interface_read(fq_name = fq_name)
                 self._db_cache['vnc_ports'][fq_name_str] = port_obj
@@ -250,7 +254,8 @@ class DBInterface(object):
     def _instance_ip_read(self, instance_ip_id = None, fq_name = None):
         if instance_ip_id:
             try:
-                return self._db_cache['vnc_instance_ips'][instance_ip_id]
+                # return self._db_cache['vnc_instance_ips'][instance_ip_id]
+                raise KeyError
             except KeyError:
                 iip_obj = self._vnc_lib.instance_ip_read(id = instance_ip_id)
                 fq_name_str = json.dumps(iip_obj.get_fq_name())
@@ -261,7 +266,8 @@ class DBInterface(object):
         if fq_name:
             fq_name_str = json.dumps(fq_name)
             try:
-                return self._db_cache['vnc_instance_ips'][fq_name_str]
+                # return self._db_cache['vnc_instance_ips'][fq_name_str]
+                raise KeyError
             except KeyError:
                 iip_obj = self._vnc_lib.instance_ip_read(fq_name = fq_name)
                 self._db_cache['vnc_instances_ips'][fq_name_str] = iip_obj
@@ -447,14 +453,16 @@ class DBInterface(object):
     def _subnet_vnc_read_mapping(self, id = None, key = None):
         if id:
             try:
-                return self._db_cache['q_subnet_maps'][id]
+                # return self._db_cache['q_subnet_maps'][id]
+                raise KeyError
             except KeyError:
                 subnet_key = self._vnc_lib.kv_retrieve(id)
                 self._db_cache['q_subnet_maps'][id] = subnet_key
                 return subnet_key
         if key:
             try:
-                return self._db_cache['q_subnet_maps'][key]
+                # return self._db_cache['q_subnet_maps'][key]
+                raise KeyError
             except KeyError:
                 subnet_id = self._vnc_lib.kv_retrieve(key)
                 self._db_cache['q_subnet_maps'][key] = subnet_id
@@ -909,7 +917,8 @@ class DBInterface(object):
 
     def network_read(self, net_uuid):
         try:
-            return self._db_cache['q_networks']['net_uuid']
+            # return self._db_cache['q_networks']['net_uuid']
+            raise KeyError
         except KeyError:
             pass
 
@@ -1056,7 +1065,8 @@ class DBInterface(object):
 
     def subnet_read(self, subnet_id):
         try:
-            return self._db_cache['q_subnets'][subnet_id]
+            # return self._db_cache['q_subnets'][subnet_id]
+            raise KeyError
         except KeyError:
             pass
 
@@ -1363,7 +1373,8 @@ class DBInterface(object):
     # TODO add obj param and let caller use below only as a converter
     def port_read(self, port_id):
         try:
-            return self._db_cache['q_ports'][port_id]
+            # return self._db_cache['q_ports'][port_id]
+            raise KeyError
         except KeyError:
             pass
 
