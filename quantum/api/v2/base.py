@@ -573,8 +573,8 @@ class Controller(object):
             request.context,
             resource_item['network_id'])
         # do not perform the check on shared networks
-            if network.get('shared'):
-               return
+        if network.get('shared'):
+           return
 
         network_owner = network['tenant_id']
 
