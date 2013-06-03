@@ -307,7 +307,7 @@ class DBInterface(object):
     def _project_list_domain(self, domain_id):
         # TODO till domain concept is not present in keystone
         fq_name = ['default-domain']
-        resp_str = self._vnc_lib.projects_list(domain_fq_name = fq_name)
+        resp_str = self._vnc_lib.projects_list(parent_fq_name = fq_name)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['projects']
@@ -320,7 +320,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" %(project_id) 
 
-        resp_str = self._vnc_lib.virtual_networks_list(project_id = project_uuid)
+        resp_str = self._vnc_lib.virtual_networks_list(parent_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['virtual-networks']
@@ -332,7 +332,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" %(project_id) 
 
-        resp_str = self._vnc_lib.network_ipams_list(project_id = project_uuid)
+        resp_str = self._vnc_lib.network_ipams_list(parent_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-ipams']
@@ -344,7 +344,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" %(project_id) 
 
-        resp_str = self._vnc_lib.network_policys_list(project_id = project_uuid)
+        resp_str = self._vnc_lib.network_policys_list(parent_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['network-policys']
@@ -378,7 +378,7 @@ class DBInterface(object):
 
     # find floating ip pools defined by network
     def _fip_pool_list_network(self, net_id):
-        resp_str = self._vnc_lib.floating_ip_pools_list(virtual_network_id = net_id)
+        resp_str = self._vnc_lib.floating_ip_pools_list(parent_id = net_id)
         resp_dict = json.loads(resp_str)
 
         return resp_dict['floating-ip-pools']
@@ -1516,7 +1516,7 @@ class DBInterface(object):
                 vm_obj = self._vnc_lib.virtual_machine_read(id = vm_id)
             except NoIdError:
                 continue
-            resp_str = self._vnc_lib.virtual_machine_interfaces_list(virtual_machine_id = vm_id)
+            resp_str = self._vnc_lib.virtual_machine_interfaces_list(parent_id = vm_id)
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
