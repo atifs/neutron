@@ -580,8 +580,7 @@ class DBInterface(object):
         net_q_dict['id'] = net_obj.uuid
         net_q_dict['name'] = net_obj.name
         extra_dict['contrail:fq_name'] = net_obj.get_fq_name()
-        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
-        net_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        net_q_dict['tenant_id'] = net_obj.parent_uuid.replace('-','')
         net_q_dict['admin_state_up'] = net_obj.get_id_perms().enable
         net_q_dict['shared'] = False
         net_q_dict['status'] = constants.NET_STATUS_ACTIVE
@@ -650,8 +649,7 @@ class DBInterface(object):
     def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj, ipam_fq_name):
         sn_q_dict = {}
         sn_q_dict['name'] = ''
-        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
-        sn_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        sn_q_dict['tenant_id'] = net_obj.parent_uuid.replace('-','')
         sn_q_dict['network_id'] = net_obj.uuid
         sn_q_dict['ip_version'] = 4 #TODO ipv6?
 
@@ -725,8 +723,7 @@ class DBInterface(object):
 
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
-        proj_obj = self._project_read(fq_name = ipam_obj.get_parent_fq_name())
-        ipam_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        ipam_q_dict['tenant_id'] = ipam_obj.parent_uuid.replace('-','')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('network_ipam_mgmt', None)
         net_back_refs = ipam_q_dict.pop('virtual_network_back_refs', None)
         if net_back_refs:
@@ -761,8 +758,7 @@ class DBInterface(object):
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
-        proj_obj = self._project_read(fq_name = policy_obj.get_parent_fq_name())
-        policy_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        policy_q_dict['tenant_id'] = policy_obj.uuid.replace('-','')
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries', None)
         net_back_refs = policy_q_dict.pop('virtual_network_back_refs', None)
         if net_back_refs:
@@ -805,24 +801,18 @@ class DBInterface(object):
         fip_q_dict = {}
         extra_dict = {}
 
-        fq_name = fip_obj.get_parent_fq_name()
-        fip_pool_obj = self._vnc_lib.floating_ip_pool_read(fq_name = fq_name)
+        fip_pool_obj = self._vnc_lib.floating_ip_pool_read(id = fip_obj.parent_uuid)
+        net_obj = self._virtual_network_read(id = fip_pool_obj.parent_uuid)
 
-        fq_name = fip_pool_obj.get_parent_fq_name()
-        net_obj = self._virtual_network_read(fq_name = fq_name)
-
-        fq_name = fip_obj.get_project_refs()[0]['to']
-        proj_obj = self._project_read(fq_name = fq_name)
+        tenant_id = fip_obj.get_project_refs()[0]['uuid'].replace('-', '')
 
         port_id = None
         port_refs = fip_obj.get_virtual_machine_interface_refs()
         if port_refs:
-            fq_name = fip_obj.get_virtual_machine_interface_refs()[0]['to']
-            port_obj = self._virtual_machine_interface_read(fq_name = fq_name)
-            port_id = port_obj.uuid
+            port_id = fip_obj.get_virtual_machine_interface_refs()[0]['uuid']
 
         fip_q_dict['id'] = fip_obj.uuid
-        fip_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        fip_q_dict['tenant_id'] = tenant_id
         fip_q_dict['floating_ip_address'] = fip_obj.get_floating_ip_address()
         fip_q_dict['floating_network_id'] = net_obj.uuid
         fip_q_dict['router_id'] = None
@@ -868,8 +858,7 @@ class DBInterface(object):
             net_id = self._vnc_lib.obj_to_id(VirtualNetwork())
 
         net_obj = self._virtual_network_read(net_id = net_id)
-        proj_obj = self._project_read(fq_name = net_obj.get_parent_fq_name())
-        port_q_dict['tenant_id'] = proj_obj.uuid.replace('-','')
+        port_q_dict['tenant_id'] = net_obj.parent_uuid.replace('-','')
         port_q_dict['network_id'] = net_obj.uuid
 
         # TODO RHS below may need fixing
@@ -1463,7 +1452,7 @@ class DBInterface(object):
  
     def port_delete(self, port_id):
         port_obj = self._port_quantum_to_vnc({'id': port_id}, None, READ)
-        inst_fq_name = port_obj.get_parent_fq_name()
+        instance_id = port_obj.parent_uuid
 
         # release instance IP address
         iip_back_refs = port_obj.get_instance_ip_back_refs()
@@ -1481,7 +1470,7 @@ class DBInterface(object):
         self._virtual_machine_interface_delete(port_id = port_id)
 
         # delete instance if this was the last port
-        inst_obj = self._vnc_lib.virtual_machine_read(fq_name = inst_fq_name)
+        inst_obj = self._vnc_lib.virtual_machine_read(id = instance_id)
         inst_intfs = inst_obj.get_virtual_machine_interfaces()
         if not inst_intfs:
             self._vnc_lib.virtual_machine_delete(id = inst_obj.uuid)
