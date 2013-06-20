@@ -721,7 +721,7 @@ class DBInterface(object):
     def _ipam_vnc_to_quantum(self, ipam_obj):
         ipam_q_dict = json.loads(json.dumps(ipam_obj,
                                      default=lambda o:
-                                     {k:v for k, v in o.__dict__.iteritems()}))
+                                     lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
@@ -757,7 +757,7 @@ class DBInterface(object):
     def _policy_vnc_to_quantum(self, policy_obj):
         policy_q_dict = json.loads(json.dumps(policy_obj,
                                      default=lambda o:
-                                     {k:v for k, v in o.__dict__.iteritems()}))
+                                     lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
