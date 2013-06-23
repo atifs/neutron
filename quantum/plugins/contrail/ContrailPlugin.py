@@ -202,12 +202,15 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def get_network(self, context, id, fields=None):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            net_info = cfgdb.network_read(id)
+            net_info = cfgdb.network_read(id, fields)
 
             # verify transformation is conforming to api
-            net_dict = self._make_network_dict(net_info['q_api_data'], fields)
-
-            net_dict.update(net_info['q_extra_data'])
+            if not fields:
+                # should return all fields
+                net_dict = self._make_network_dict(net_info['q_api_data'], fields)
+                net_dict.update(net_info['q_extra_data'])
+            else:
+                net_dict = net_info['q_api_data']
 
             LOG.debug("get_network(): " + pformat(net_dict))
             return self._fields(net_dict, fields)
@@ -767,7 +770,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     #end get_ports
 
     def get_ports_count(self, context, filters=None):
-        ports_count = self._cfgdb.ports_count(filters)
+        ports_count = self._cfgdb.port_count(filters)
         LOG.debug("get_ports_count(): " + str(ports_count))
         return ports_count
     #end get_ports_count
