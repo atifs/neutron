@@ -1389,16 +1389,35 @@ class DBInterface(object):
         # initialize port object
         port_obj = self._port_quantum_to_vnc(port_q, net_obj, CREATE)
 
-        # initialize ip object
-        ip_name = str(uuid.uuid4())
-        ip_obj = InstanceIp(name = ip_name)
-        ip_obj.uuid = ip_name
-        ip_obj.set_virtual_machine_interface(port_obj)
-        ip_obj.set_virtual_network(net_obj)
+        # if ip address passed then use it
+        ip_addr = None
+        ip_obj = None
+        if port_q['fixed_ips'].__class__ is not object:
+            ip_addr = port_q['fixed_ips'][0]['ip_address']
+            ip_name = '%s %s' % (net_id, ip_addr)
+            try:
+                ip_obj = self._instance_ip_read(id = ip_id)
+            except Exception as e:
+                ip_obj = None
 
-        # create the objects
+        # create the object
         port_id = self._virtual_machine_interface_create(port_obj)
-        ip_id = self._instance_ip_create(ip_obj)
+
+        # initialize ip object
+        if ip_obj == None:
+            ip_name = str(uuid.uuid4())
+            ip_obj = InstanceIp(name = ip_name)
+            ip_obj.uuid = ip_name
+            ip_obj.set_virtual_machine_interface(port_obj)
+            ip_obj.set_virtual_network(net_obj)
+            if ip_addr:
+                ip_obj.set_instance_ip_address(ip_addr)
+            ip_id = self._instance_ip_create(ip_obj)
+        # shared ip address 
+        else:
+            if ip_addr == ip_obj.get_instance_ip_address():
+                ip_obj.set_virtual_machine_interface(port_obj)
+                self._instance_ip_update(ip_obj)
 
         # read back the allocated ip address
         ip_obj = self._instance_ip_read(instance_ip_id = ip_id)
