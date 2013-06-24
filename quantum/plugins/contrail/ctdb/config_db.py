@@ -1691,4 +1691,42 @@ class DBInterface(object):
         return nports
     #end port_count
 
+    # security group api handlers
+    def security_group_create(self, sg_q):
+        sg_obj = self._security_group_quantum_to_vnc(sg_q, CREATE)
+        sg_uuid = self._security_group_create(sg_obj)
+
+        ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
+
+        return ret_sg_q
+    #end security_group_create
+
+    def security_group_read(self, sg_id):
+        pass
+    #end security_group_read
+
+    def security_group_delete(self, sg_id):
+        pass
+    #end security_group_delete
+
+    def security_group_list(self, filters = None):
+        pass
+    #end security_group_list
+
+    def security_group_rule_create(self, sgr_q):
+        pass
+    #end security_group_rule_create
+
+    def security_group_rule_read(self, sgr_id):
+        pass
+    #end security_group_rule_read
+
+    def security_group_rule_delete(self, sgr_id):
+        pass
+    #end security_group_rule_delete
+
+    def security_group_rule_list(self, filters = None):
+        pass
+    #end security_group_rule_list
+
 #end class DBInterface

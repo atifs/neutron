@@ -14,12 +14,14 @@ from pprint import pformat
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
 from quantum.db import db_base_plugin_v2
-from quantum.extensions import l3
+from quantum.extensions import l3, securitygroup
 
 from oslo.config import cfg
 from httplib2 import Http
 import re
 import string
+import sys
+import cgitb
 
 import ctdb.config_db
 
@@ -54,12 +56,12 @@ def _read_cfg_boolean(cfg_parser, section, option, default):
 
 #TODO define ABC PluginBase for ipam and policy and derive mixin from them
 class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
-                     l3.RouterPluginBase):
+                     l3.RouterPluginBase, securitygroup.SecurityGroupPluginBase):
     """
     .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
-    supported_extension_aliases = ["ipam", "policy", "security_groups",
+    supported_extension_aliases = ["ipam", "policy", "security-group",
                                    "router"]
     _cfgdb = None
     _args = None
@@ -195,7 +197,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_network(): " + pformat(net_dict) + "\n")
             return net_dict
         except Exception as e:
-            LOG.error("create_network(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_network
 
@@ -215,7 +217,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_network(): " + pformat(net_dict))
             return self._fields(net_dict, fields)
         except Exception as e:
-            LOG.error("get_network(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_network 
 
@@ -235,7 +237,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_network(): " + pformat(net_dict))
             return net_dict
         except Exception as e:
-            LOG.error("update_network(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_network
 
@@ -249,7 +251,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             cfgdb.network_delete(net_id)
             LOG.debug("delete_network(): " + pformat(net_id))
         except Exception as e:
-            LOG.error("delete_network(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_network
 
@@ -269,14 +271,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_networks(): filters: " + pformat(filters) + " data: " + pformat(nets_dicts))
             return nets_dicts
         except Exception as e:
-            LOG.error("get_networks(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_networks
 
     def get_networks_count(self, context, filters=None):
-        nets_count = self._cfgdb.network_count(filters)
-        LOG.debug("get_networks_count(): " + str(nets_count))
-        return nets_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            nets_count = cfgdb.network_count(filters)
+            LOG.debug("get_networks_count(): " + str(nets_count))
+            return nets_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_networks_count
 
     # Subnet API handlers
@@ -293,7 +300,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_subnet(): " + pformat(subnet_dict))
             return subnet_dict
         except Exception as e:
-            LOG.error("create_subnet(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_subnet
 
@@ -310,7 +317,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_subnet(): " + pformat(subnet_dict)) 
             return self._fields(subnet_dict, fields)
         except Exception as e:
-            LOG.error("create_subnet(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_subnet
 
@@ -327,7 +334,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_subnet(): " + pformat(subnet_dict))
             return subnet_dict
         except Exception as e:
-            LOG.error("update_subnet(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_subnet
 
@@ -338,7 +345,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             LOG.debug("delete_subnet(): " + pformat(subnet_id))
         except Exception as e:
-            LOG.error("delete_subnet(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_subnet
 
@@ -361,14 +368,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_subnets(): filters: " + pformat(filters) + " data: " + pformat(subnets_dicts))
             return subnets_dicts
         except Exception as e:
-            LOG.error("get_subnets(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_subnets
 
     def get_subnets_count(self, context, filters=None):
-        subnets_count = self._cfgdb.subnets_count(filters)
-        LOG.debug("get_subnets_count(): " + str(subnets_count))
-        return subnets_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            subnets_count = cfgdb.subnets_count(filters)
+            LOG.debug("get_subnets_count(): " + str(subnets_count))
+            return subnets_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_subnets_count
 
     # Ipam API handlers
@@ -390,7 +402,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_ipam(): " + pformat(ipam_dict))
             return ipam_dict
         except Exception as e:
-            LOG.error("create_ipam(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_ipam
 
@@ -408,7 +420,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_ipam(): " + pformat(ipam_dict))
             return ipam_dict
         except Exception as e:
-            LOG.error("get_ipam(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_ipam 
 
@@ -429,7 +441,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_ipam(): " + pformat(ipam_dict))
             return ipam_dict
         except Exception as e:
-            LOG.error("update_ipam(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_ipam
 
@@ -443,7 +455,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             LOG.debug("delete_ipam(): " + pformat(ipam_id))
         except Exception as e:
-            LOG.error("delete_ipam(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_ipam
 
@@ -464,14 +476,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_ipams(): " + pformat(ipams_dicts))
             return ipams_dicts
         except Exception as e:
-            LOG.error("get_ipams(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_ipams
 
     def get_ipams_count(self, context, filters=None):
-        ipams_count = self._cfgdb.ipams_count(filters)
-        LOG.debug("get_ipams_count(): " + str(ipams_count))
-        return ipams_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ipams_count = cfgdb.ipams_count(filters)
+            LOG.debug("get_ipams_count(): " + str(ipams_count))
+            return ipams_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_ipams_count
 
     # Policy API handlers
@@ -493,7 +510,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_policy(): " + pformat(policy_dict))
             return policy_dict
         except Exception as e:
-            LOG.error("create_policy(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_policy
 
@@ -511,7 +528,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_policy(): " + pformat(policy_dict)) 
             return policy_dict
         except Exception as e:
-            LOG.error("get_policy(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_policy
 
@@ -532,7 +549,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_policy(): " + pformat(policy_dict))
             return policy_dict
         except Exception as e:
-            LOG.error("update_policy(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_policy
 
@@ -546,7 +563,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             LOG.debug("delete_policy(): " + pformat(policy_id)) 
         except Exception as e:
-            LOG.error("delete_policy(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_policy
 
@@ -567,14 +584,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_policys(): " + pformat(policys_dicts))
             return policys_dicts
         except Exception as e:
-            LOG.error("get_policys(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_policys
 
     def get_policy_count(self, context, filters=None):
-        policy_count = self._cfgdb.policy_count(filters)
-        LOG.debug("get_policy_count(): " + str(policy_count))
-        return policy_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            policy_count = cfgdb.policy_count(filters)
+            LOG.debug("get_policy_count(): " + str(policy_count))
+            return policy_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_policy_count
 
     # Floating IP API handlers
@@ -601,7 +623,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_floatingip(): " + pformat(fip_dict))
             return fip_dict
         except Exception as e:
-            LOG.error("create_floatingip(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_floatingip
 
@@ -618,7 +640,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_floatingip(): " + pformat(fip_dict)) 
             return fip_dict
         except Exception as e:
-            LOG.error("update_floatingip(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_floatingip
 
@@ -635,7 +657,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_floatingip(): " + pformat(fip_dict))
             return fip_dict
         except Exception as e:
-            LOG.error("get_floatingip(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_floatingip
 
@@ -645,7 +667,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             cfgdb.floatingip_delete(fip_id)
             LOG.debug("delete_floating(): " + pformat(fip_id)) 
         except Exception as e:
-            LOG.error("delete_floatingip(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_floatingip
 
@@ -665,14 +687,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_floatingips(): " + pformat(fips_dicts)) 
             return fips_dicts
         except Exception as e:
-            LOG.error("get_floatingips(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_floatingips
 
     def get_floatingips_count(self, context, filters=None):
-        floatingips_count = self._cfgdb.floatingips_count(filters)
-        LOG.debug("get_floatingips_count(): " + str(floatingips_count))
-        return floatingips_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            floatingips_count = cfgdb.floatingips_count(filters)
+            LOG.debug("get_floatingips_count(): " + str(floatingips_count))
+            return floatingips_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_floatingips_count
 
     # Port API handlers
@@ -681,7 +708,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Creates a port on the specified Virtual Network.
         """
         try:
-            port_info = self._cfgdb.port_create(port['port'])
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            port_info = cfgdb.port_create(port['port'])
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'])
@@ -691,13 +719,14 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("create_port(): " + pformat(port_dict)) 
             return port_dict
         except Exception as e:
-            LOG.error("create_port(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end create_port
 
     def get_port(self, context, port_id, fields = None):
         try:
-            port_info = self._cfgdb.port_read(port_id)
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            port_info = cfgdb.port_read(port_id)
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'], fields)
@@ -707,7 +736,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_port(): " + pformat(port_dict))
             return self._fields(port_dict, fields)
         except Exception as e:
-            LOG.error("get_port(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_port
 
@@ -716,7 +745,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         Updates the attributes of a port on the specified Virtual Network.
         """
         try:
-            port_info = self._cfgdb.port_update(port_id, port['port'])
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            port_info = cfgdb.port_update(port_id, port['port'])
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'])
@@ -726,7 +756,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("update_port(): " + pformat(port_dict)) 
             return port_dict
         except Exception as e:
-            LOG.error("update_port(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end update_port
 
@@ -738,10 +768,11 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         is deleted.
         """
         try:
-            self._cfgdb.port_delete(port_id)
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.port_delete(port_id)
             LOG.debug("delete_port(): " + pformat(port_id))
         except Exception as e:
-            LOG.error("delete_port(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end delete_port
 
@@ -751,8 +782,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         specified Virtual Network.
         """
         try:
-            # TODO validate network ownership of net_id by tenant_id
-            ports_info = self._cfgdb.port_list(filters)
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ports_info = cfgdb.port_list(filters)
 
             ports_dicts = []
             for p_info in ports_info:
@@ -765,14 +796,19 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             LOG.debug("get_ports(): filter: " +pformat(filters) + 'data: ' + pformat(ports_dicts))
             return ports_dicts
         except Exception as e:
-            LOG.error("get_ports(): Exception - " + str(e) + "\n")
+            cgitb.Hook(format = "text").handle(sys.exc_info())
             raise e
     #end get_ports
 
     def get_ports_count(self, context, filters=None):
-        ports_count = self._cfgdb.port_count(filters)
-        LOG.debug("get_ports_count(): " + str(ports_count))
-        return ports_count
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            ports_count = cfgdb.port_count(filters)
+            LOG.debug("get_ports_count(): " + str(ports_count))
+            return ports_count
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
     #end get_ports_count
 
     def plug_interface(self, tenant_id, net_id, port_id, remote_interface_id):
@@ -797,10 +833,150 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         self._get_port(tenant_id, net_id, port_id)
         db.port_unset_attachment(port_id, net_id)
 
-    def create_security_group(self, request):
-        """
-        Creates a new Security Group.
-        """
-        cfgdb = ContrailPlugin._get_user_cfgdb(context)
-        rsp = cfgdb.security_group_create(request)
-        return rsp
+    # Security Group handlers
+    def _make_security_group_rule_dict(self, security_group_rule, fields=None):
+        res = {'id': security_group_rule['id'],
+               'tenant_id': security_group_rule['tenant_id'],
+               'security_group_id': security_group_rule['security_group_id'],
+               'ethertype': security_group_rule['ethertype'],
+               'direction': security_group_rule['direction'],
+               'protocol': security_group_rule['protocol'],
+               'port_range_min': security_group_rule['port_range_min'],
+               'port_range_max': security_group_rule['port_range_max'],
+               'remote_ip_prefix': security_group_rule['remote_ip_prefix'],
+               'remote_group_id': security_group_rule['remote_group_id']}
+
+        return self._fields(res, fields)
+
+    def _make_security_group_dict(self, security_group, fields=None):
+        res = {'id': security_group['id'],
+               'name': security_group['name'],
+               'tenant_id': security_group['tenant_id'],
+               'description': security_group['description']}
+        res['security_group_rules'] = [self._make_security_group_rule_dict(r)
+                                       for r in security_group.rules]
+        return self._fields(res, fields)
+
+    def create_security_group(self, context, security_group):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            sg_info = cfgdb.security_group_create(security_group['security_group'])
+
+            # verify transformation is conforming to api
+            sg_dict = self._make_security_group_dict(sg_info['q_api_data'])
+
+            sg_dict.update(sg_info['q_extra_data'])
+
+            LOG.debug("create_security_group(): " + pformat(sg_dict)) 
+            return sg_dict
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def delete_security_group(self, context, id):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.security_group_delete(id)
+            LOG.debug("delete_security_group(): " + pformat(id))
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def get_security_groups(self, context, filters=None, fields=None,
+                            sorts=None, limit=None, marker=None,
+                            page_reverse=False):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            security_groups_info = cfgdb.security_group_list(filters)
+
+            security_groups_dicts = []
+            for sg_info in security_groups_info:
+                # verify transformation is conforming to api
+                sg_dict = self._make_security_group_dict(sg_info['q_api_data'], fields)
+
+                sg_dict.update(sg_info['q_extra_data'])
+                security_groups_dicts.append(sg_dict)
+
+            LOG.debug("get_security_groups(): filter: " +pformat(filters) + 'data: ' + pformat(security_groups_dicts))
+            return security_groups_dicts
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def get_security_group(self, context, id, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            sg_info = cfgdb.security_group_read(id)
+
+            # verify transformation is conforming to api
+            sg_dict = self._make_port_dict(sg_info['q_api_data'], fields)
+
+            sg_dict.update(sg_info['q_extra_data'])
+
+            LOG.debug("get_security_group(): " + pformat(sg_dict))
+            return self._fields(sg_dict, fields)
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def create_security_group_rule(self, context, security_group_rule):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            sgr_info = cfgdb.security_group_rule_create(security_group_rule['security_group_rule'])
+
+            # verify transformation is conforming to api
+            sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'])
+
+            sgr_dict.update(sgr_info['q_extra_data'])
+
+            LOG.debug("create_security_group_rule(): " + pformat(sgr_dict)) 
+            return sgr_dict
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def delete_security_group_rule(self, context, id):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.security_group_rule_delete(id)
+            LOG.debug("delete_security_group_rule(): " + pformat(id))
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def get_security_group_rules(self, context, filters=None, fields=None,
+                                 sorts=None, limit=None, marker=None,
+                                 page_reverse=False):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            security_group_rules_info = cfgdb.security_group_list(filters)
+
+            security_group_rules_dicts = []
+            for sgr_info in security_group_rules_info:
+                # verify transformation is conforming to api
+                sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
+
+                sgr_dict.update(sgr_info['q_extra_data'])
+                security_group_rules_dicts.append(sgr_dict)
+
+            LOG.debug("get_security_group_rules(): filter: " +pformat(filters) + 'data: ' + pformat(security_group_rules_dicts))
+            return security_group_rules_dicts
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
+
+    def get_security_group_rule(self, context, id, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            sgr_info = cfgdb.security_group_rule_read(id)
+
+            # verify transformation is conforming to api
+            sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
+
+            sgr_dict.update(sgr_info['q_extra_data'])
+
+            LOG.debug("get_security_group_rule(): " + pformat(sgr_dict))
+            return self._fields(sgr_dict, fields)
+        except Exception as e:
+            cgitb.Hook(format = "text").handle(sys.exc_info())
+            raise e
