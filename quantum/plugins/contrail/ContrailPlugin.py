@@ -694,7 +694,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def get_floatingips_count(self, context, filters=None):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            floatingips_count = cfgdb.floatingips_count(filters)
+            floatingips_count = cfgdb.floatingip_count(filters)
             LOG.debug("get_floatingips_count(): " + str(floatingips_count))
             return floatingips_count
         except Exception as e:
