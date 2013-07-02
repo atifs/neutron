@@ -206,6 +206,55 @@ class DBInterface(object):
                 return proj_obj
     #end _project_read
 
+    def _security_group_rule_create(self, sg_id, sg_rule):
+        sg_vnc = self._vnc_lib.security_group_read(id = sg_id)
+        rules = sg_vnc.get_security_group_entries()
+        if rules is None: 
+            rules = PolicyEntriesType([sg_rule])
+        else:
+            rules.add_policy_rule(sg_rule)
+
+        sg_vnc.set_security_group_entries(rules)
+        self._vnc_lib.security_group_update(sg_vnc)
+        return
+    #end _security_group_rule_create
+
+    def _security_group_rule_find(self, sgr_id):
+        dom_projects = self._project_list_domain(None)
+        for project in dom_projects:
+            proj_id = project['uuid']
+            project_sgs = self._security_group_list_project(proj_id)
+
+            for sg in project_sgs:
+                sg_obj = self._vnc_lib.security_group_read(id = sg['uuid'])
+                sgr_entries = sg_obj.get_security_group_entries()
+                if sgr_entries == None:
+                    continue
+ 
+                for sg_rule in sgr_entries.get_policy_rule():
+                    if sg_rule.get_rule_uuid() == sgr_id:
+                        return sg_obj, sg_rule
+
+        return None, None
+    #end _security_group_rule_find
+
+    def _security_group_rule_delete(self, sg_obj, sg_rule):
+        rules = sg_obj.get_security_group_entries()
+        rules.get_policy_rule().remove(sg_rule)
+        sg_obj.set_security_group_entries(rules)
+        self._vnc_lib.security_group_update(sg_obj)
+        return
+    #end _security_group_rule_delete
+
+    def _security_group_create(self, sg_obj):
+        sg_uuid = self._vnc_lib.security_group_create(sg_obj)
+        return sg_uuid
+    #end _security_group_create
+
+    def _security_group_delete(self, sg_id):
+        self._vnc_lib.security_group_delete(id = sg_id)
+    #end _security_group_delete
+
     def _virtual_network_create(self, net_obj):
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
 
@@ -414,6 +463,31 @@ class DBInterface(object):
         return resp_dict['network-ipams']
     #end _ipam_list_project
 
+    def _security_group_list_project(self, project_id):
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" %(project_id) 
+
+        resp_str = self._vnc_lib.security_groups_list(parent_id = project_uuid)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['security-groups']
+    #end _security_group_list_project
+
+
+    def _security_group_entries_list_sg(self, sg_id):
+        try:
+            sg_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting SG uuid %s" %(sg_id) 
+
+        resp_str = self._vnc_lib.security_groups_list(parent_id = project_uuid)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['security-groups']
+    #end _security_group_entries_list_sg
+
     def _policy_list_project(self, project_id):
         try:
             project_uuid = str(uuid.UUID(project_id))
@@ -617,6 +691,108 @@ class DBInterface(object):
     #end _ip_address_to_subnet_id
 
     # Conversion routines between VNC and Quantum objects
+    def _security_group_vnc_to_quantum(self, sg_obj):
+        sg_q_dict = json.loads(json.dumps(sg_obj,
+                               default=lambda o:
+                               {k:v for k, v in o.__dict__.iteritems()}))
+
+        # replace field names
+        sg_q_dict['id'] = sg_q_dict.pop('uuid')
+        sg_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-','')
+        sg_q_dict['name'] = sg_obj.name
+        sg_q_dict['description'] = sg_obj.get_id_perms().get_description()
+
+        return {'q_api_data': sg_q_dict,
+                'q_extra_data': {}}
+    #end _security_group_vnc_to_quantum
+
+    def _security_group_quantum_to_vnc(self, sg_q, oper):
+        if oper == CREATE:
+            project_id = str(uuid.UUID(sg_q['tenant_id']))
+            project_obj = self._project_read(proj_id = project_id)
+            id_perms = IdPermsType(enable = True, 
+                                   description = sg_q['description'])
+            sg_vnc = SecurityGroup(name = sg_q['name'], 
+                                   parent_obj = project_obj,
+				   id_perms = id_perms) 
+
+        return sg_vnc
+    #end _security_group_quantum_to_vnc
+
+    def _security_group_rule_vnc_to_quantum(self, sg_id, sg_rule):
+        sgr_q_dict = {}
+        if sg_id == None:
+            return {'q_api_data': sgr_q_dict,
+                    'q_extra_data': {}}
+
+        try:
+            sg_obj = self._vnc_lib.security_group_read(id = sg_id)
+        except NoIdError:
+            # TODO add security group specific exception
+            raise exceptions.NetworkNotFound(net_id = sg_id)
+
+        direction = 'egress'
+        if sg_rule.get_direction() == '<':
+            direction = 'ingress'
+
+        remote_cidr = ''
+        remote_sg = ''
+        dst_addr = sg_rule.get_dst_addresses()[0]
+        if dst_addr.get_subnet():
+            remote_cidr = '%s/%s' % (dst_addr.get_subnet().get_ip_prefix(),
+                              dst_addr.get_subnet().get_ip_prefix_len())
+        elif dst_addr.get_security_group():
+            remote_sg = dst_addr.get_security_group()
+
+        sgr_q_dict['id'] = sg_rule.get_rule_uuid()
+        sgr_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-','') 
+        sgr_q_dict['security_group_id'] = sg_obj.uuid
+        sgr_q_dict['ethertype'] = 'IPv4'
+        sgr_q_dict['direction'] = direction
+        sgr_q_dict['protocol'] = sg_rule.get_protocol()
+        sgr_q_dict['port_range_min'] = sg_rule.get_dst_ports()[0].get_start_port()
+        sgr_q_dict['port_range_max'] = sg_rule.get_dst_ports()[0].get_end_port()
+        sgr_q_dict['remote_ip_prefix'] = remote_cidr
+        sgr_q_dict['remote_group_id'] = remote_sg
+
+        return {'q_api_data': sgr_q_dict,
+                'q_extra_data': {}}
+    #end _security_group_rule_vnc_to_quantum
+
+    def _security_group_rule_quantum_to_vnc(self, sgr_q, oper):
+        if oper == CREATE:
+            port_min = 0
+            port_max = 65535 
+            if sgr_q['port_range_min']:
+                port_min = sgr_q['port_range_min']
+            if sgr_q['port_range_max']:
+                port_max = sgr_q['port_range_max']
+
+            if sgr_q['direction'] == 'ingress':
+                dir = '<'
+            else:
+                dir = '>'
+
+            remote = None
+            if sgr_q['remote_ip_prefix']:
+                cidr = sgr_q['remote_ip_prefix'].split('/')
+                pfx = cidr[0]
+                pfx_len = int(cidr[1])
+                remote = [AddressType(subnet = SubnetType(pfx, pfx_len))]
+            elif sgr_q['remote_group_id']:
+                remote = [AddressType(security_group = sgr_q['remote_group_id'])]
+
+            sgr_uuid = str(uuid.uuid4())
+
+            rule = PolicyRuleType(None, sgr_uuid, dir, 'pass', 
+                                  sgr_q['protocol'],
+                                  None, None, None,
+                                  remote, [PortType(port_min, port_max)], None)
+            return rule
+
+        return sg_vnc, sgr_uuid
+    #end _security_group_rule_quantum_to_vnc
+
     def _network_quantum_to_vnc(self, network_q, oper):
         net_name = network_q.get('name', None)
         if oper == CREATE:
@@ -1621,7 +1797,6 @@ class DBInterface(object):
     #end port_delete
 
     def port_list(self, filters = None):
-        #import pdb; pdb.set_trace()
         project_obj = None
         ret_q_ports = []
         all_project_ids = []
@@ -1695,38 +1870,125 @@ class DBInterface(object):
     def security_group_create(self, sg_q):
         sg_obj = self._security_group_quantum_to_vnc(sg_q, CREATE)
         sg_uuid = self._security_group_create(sg_obj)
-
         ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
 
         return ret_sg_q
     #end security_group_create
 
     def security_group_read(self, sg_id):
-        pass
+        try:
+            sg_obj = self._vnc_lib.security_group_read(id = sg_id)
+        except NoIdError:
+            # TODO add security group specific exception
+            raise exceptions.NetworkNotFound(net_id = sg_id)
+
+        return self._security_group_vnc_to_quantum(sg_obj)
     #end security_group_read
 
     def security_group_delete(self, sg_id):
-        pass
+        self._security_group_delete(sg_id)
     #end security_group_delete
 
     def security_group_list(self, filters = None):
-        pass
+        ret_list = []
+
+        # collect phase
+        all_sgs = [] # all sgs in all projects
+        if filters and filters.has_key('tenant_id'):
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_sgs = self._security_group_list_project(p_id)
+                all_sgs.append(project_sgs)
+        else: # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                proj_id = project['uuid']
+                project_sgs = self._security_group_list_project(proj_id)
+                all_sgs.append(project_sgs)
+
+        # prune phase
+        for project_sgs in all_sgs:
+            for proj_sg in project_sgs:
+                # TODO implement same for name specified in filter
+                proj_sg_id = proj_sg['uuid']
+                if not self._filters_is_present(filters, 'id', proj_sg_id):
+                    continue
+                sg_info = self.security_group_read(proj_sg_id)
+                ret_list.append(sg_info)
+
+        return ret_list
     #end security_group_list
 
     def security_group_rule_create(self, sgr_q):
-        pass
+        sg_id = sgr_q['security_group_id']
+        sg_rule = self._security_group_rule_quantum_to_vnc(sgr_q, CREATE)
+        self._security_group_rule_create(sg_id, sg_rule)
+        ret_sg_rule_q = self._security_group_rule_vnc_to_quantum(sg_id, sg_rule)
+
+        return ret_sg_rule_q
     #end security_group_rule_create
 
     def security_group_rule_read(self, sgr_id):
-        pass
+        sg_obj, sg_rule = self._security_group_rule_find(sgr_id)
+        if sg_obj and sg_rule:
+            return self._security_group_rule_vnc_to_quantum(sg_obj.uuid, sg_rule)
+
+        return {}
     #end security_group_rule_read
 
     def security_group_rule_delete(self, sgr_id):
-        pass
+        sg_obj, sg_rule = self._security_group_rule_find(sgr_id)
+        if sg_obj and sg_rule:
+            return self._security_group_rule_delete(sg_obj, sg_rule)
     #end security_group_rule_delete
 
+    def security_group_rules_read(self, sg_id):
+        try:
+            sg_obj = self._vnc_lib.security_group_read(id = sg_id)
+            sgr_entries = sg_obj.get_security_group_entries()
+            sg_rules = []
+            if sgr_entries == None:
+                return
+
+            for sg_rule in sgr_entries.get_policy_rule():
+                sg_info = self._security_group_rule_vnc_to_quantum(sg_obj.uuid, sg_rule)
+                sg_rules.append(sg_info)
+        except NoIdError:
+            # TODO add security group specific exception
+            raise exceptions.NetworkNotFound(net_id = sgr_id)
+
+        return sg_rules
+    #end security_group_rules_read
+
     def security_group_rule_list(self, filters = None):
-        pass
+        ret_list = []
+
+        # collect phase
+        all_sgs = [] 
+        if filters and filters.has_key('tenant_id'):
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_sgs = self._security_group_list_project(p_id)
+                all_sgs.append(project_sgs)
+        else: # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                proj_id = project['uuid']
+                project_sgs = self._security_group_list_project(proj_id)
+                all_sgs.append(project_sgs)
+
+        # prune phase
+        for project_sgs in all_sgs:
+            for proj_sg in project_sgs:
+                # TODO implement same for name specified in filter
+                proj_sg_id = proj_sg['uuid']
+                if not self._filters_is_present(filters, 'id', proj_sg_id):
+                    continue
+                sgr_info = self.security_group_rules_read(proj_sg_id)
+                if sgr_info:
+                    ret_list.append(sgr_info)
+
+        return ret_list
     #end security_group_rule_list
 
 #end class DBInterface
