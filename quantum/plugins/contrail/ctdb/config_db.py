@@ -1094,6 +1094,7 @@ class DBInterface(object):
                 for sg_id in port_q['security_groups']:
                     sg_obj = self._vnc_lib.security_group_read(id = sg_id)
                     instance_obj.add_security_group(sg_obj)
+                    self._vnc_lib.virtual_machine_update(instance_obj)
 
             id_perms = IdPermsType(enable = True)
             port_obj = VirtualMachineInterface(port_name, instance_obj, id_perms = id_perms)
