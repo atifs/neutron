@@ -1090,6 +1090,11 @@ class DBInterface(object):
             instance_name = port_q['device_id']
             instance_obj = VirtualMachine(instance_name)
 
+            if port_q['security_groups'].__class__ is not object:
+                for sg_id in port_q['security_groups']:
+                    sg_obj = self._vnc_lib.security_group_read(id = sg_id)
+                    instance_obj.add_security_group(sg_obj)
+
             id_perms = IdPermsType(enable = True)
             port_obj = VirtualMachineInterface(port_name, instance_obj, id_perms = id_perms)
             port_obj.uuid = port_name
