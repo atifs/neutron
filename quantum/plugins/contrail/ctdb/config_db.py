@@ -694,7 +694,7 @@ class DBInterface(object):
     def _security_group_vnc_to_quantum(self, sg_obj):
         sg_q_dict = json.loads(json.dumps(sg_obj,
                                default=lambda o:
-                               {k:v for k, v in o.__dict__.iteritems()}))
+                               lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
         sg_q_dict['id'] = sg_q_dict.pop('uuid')
