@@ -853,8 +853,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                'name': security_group['name'],
                'tenant_id': security_group['tenant_id'],
                'description': security_group['description']}
-        res['security_group_rules'] = [self._make_security_group_rule_dict(r)
-                                       for r in security_group.rules]
+        #res['security_group_rules'] = [self._make_security_group_rule_dict(r)
+        #                               for r in security_group.rules]
         return self._fields(res, fields)
 
     def create_security_group(self, context, security_group):
@@ -909,7 +909,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             sg_info = cfgdb.security_group_read(id)
 
             # verify transformation is conforming to api
-            sg_dict = self._make_port_dict(sg_info['q_api_data'], fields)
+            sg_dict = self._make_security_group_dict(sg_info['q_api_data'], fields)
 
             sg_dict.update(sg_info['q_extra_data'])
 
@@ -926,7 +926,6 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             # verify transformation is conforming to api
             sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'])
-
             sgr_dict.update(sgr_info['q_extra_data'])
 
             LOG.debug("create_security_group_rule(): " + pformat(sgr_dict)) 
@@ -949,15 +948,15 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                                  page_reverse=False):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            security_group_rules_info = cfgdb.security_group_list(filters)
+            security_group_rules_info = cfgdb.security_group_rule_list(filters)
 
             security_group_rules_dicts = []
             for sgr_info in security_group_rules_info:
-                # verify transformation is conforming to api
-                sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
-
-                sgr_dict.update(sgr_info['q_extra_data'])
-                security_group_rules_dicts.append(sgr_dict)
+                for sgr in sgr_info:
+                    # verify transformation is conforming to api
+                    sgr_dict = self._make_security_group_rule_dict(sgr['q_api_data'], fields)
+                    sgr_dict.update(sgr['q_extra_data'])
+                    security_group_rules_dicts.append(sgr_dict)
 
             LOG.debug("get_security_group_rules(): filter: " +pformat(filters) + 'data: ' + pformat(security_group_rules_dicts))
             return security_group_rules_dicts
@@ -971,9 +970,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             sgr_info = cfgdb.security_group_rule_read(id)
 
             # verify transformation is conforming to api
-            sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
-
-            sgr_dict.update(sgr_info['q_extra_data'])
+            sgr_dict = {}
+            if sgr_info != {}:
+                sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
+                sgr_dict.update(sgr_info['q_extra_data'])
 
             LOG.debug("get_security_group_rule(): " + pformat(sgr_dict))
             return self._fields(sgr_dict, fields)
