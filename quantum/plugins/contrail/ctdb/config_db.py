@@ -396,7 +396,7 @@ class DBInterface(object):
                 raise KeyError
             except KeyError:
                 iip_obj = self._vnc_lib.instance_ip_read(fq_name = fq_name)
-                self._db_cache['vnc_instances_ips'][fq_name_str] = iip_obj
+                self._db_cache['vnc_instance_ips'][fq_name_str] = iip_obj
                 self._db_cache['vnc_instance_ips'][iip_obj.uuid] = iip_obj
                 return iip_obj
                 
@@ -1687,7 +1687,8 @@ class DBInterface(object):
             ip_addr = port_q['fixed_ips'][0]['ip_address']
             ip_name = '%s %s' % (net_id, ip_addr)
             try:
-                ip_obj = self._instance_ip_read(id = ip_id)
+                ip_obj = self._instance_ip_read(fq_name = [ip_name])
+                ip_id = ip_obj.uuid
             except Exception as e:
                 ip_obj = None
 
