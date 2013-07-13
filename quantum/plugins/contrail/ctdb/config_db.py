@@ -693,7 +693,7 @@ class DBInterface(object):
     # Conversion routines between VNC and Quantum objects
     def _security_group_vnc_to_quantum(self, sg_obj):
         sg_q_dict = json.loads(json.dumps(sg_obj,
-                               default=lambda o:
+                               default=
                                lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
@@ -979,7 +979,7 @@ class DBInterface(object):
 
     def _ipam_vnc_to_quantum(self, ipam_obj):
         ipam_q_dict = json.loads(json.dumps(ipam_obj,
-                                     default=lambda o:
+                                     default=
                                      lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
@@ -1014,7 +1014,7 @@ class DBInterface(object):
 
     def _policy_vnc_to_quantum(self, policy_obj):
         policy_q_dict = json.loads(json.dumps(policy_obj,
-                                     default=lambda o:
+                                     default=
                                      lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
