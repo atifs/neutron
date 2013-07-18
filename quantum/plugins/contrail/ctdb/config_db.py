@@ -1704,7 +1704,12 @@ class DBInterface(object):
             ip_obj.set_virtual_network(net_obj)
             if ip_addr:
                 ip_obj.set_instance_ip_address(ip_addr)
-            ip_id = self._instance_ip_create(ip_obj)
+            try:
+                ip_id = self._instance_ip_create(ip_obj)
+            except Exception as e:
+                # ResourceExhaustionError, resources are not available
+                self._virtual_machine_interface_delete(port_id = port_id)
+                raise e
         # shared ip address 
         else:
             if ip_addr == ip_obj.get_instance_ip_address():
