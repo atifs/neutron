@@ -697,7 +697,7 @@ class DBInterface(object):
                                lambda o: dict((k, v) for k, v in o.__dict__.iteritems())))
 
         # replace field names
-        sg_q_dict['id'] = sg_q_dict.pop('uuid')
+        sg_q_dict['id'] = sg_obj.uuid
         sg_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-','')
         sg_q_dict['name'] = sg_obj.name
         sg_q_dict['description'] = sg_obj.get_id_perms().get_description()
@@ -1926,6 +1926,8 @@ class DBInterface(object):
                 if not self._filters_is_present(filters, 'id', proj_sg_id):
                     continue
                 sg_info = self.security_group_read(proj_sg_id)
+                if not self._filters_is_present(filters, 'name', sg_info['q_api_data']['name']):
+                    continue
                 ret_list.append(sg_info)
 
         return ret_list
