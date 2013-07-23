@@ -1713,7 +1713,7 @@ class DBInterface(object):
         # shared ip address 
         else:
             if ip_addr == ip_obj.get_instance_ip_address():
-                ip_obj.set_virtual_machine_interface(port_obj)
+                ip_obj.add_virtual_machine_interface(port_obj)
                 self._instance_ip_update(ip_obj)
 
         # read back the allocated ip address
@@ -1776,7 +1776,19 @@ class DBInterface(object):
         iip_back_refs = port_obj.get_instance_ip_back_refs()
         if iip_back_refs:
             for iip_back_ref in iip_back_refs:
-                self._instance_ip_delete(instance_ip_id = iip_back_ref['uuid'])
+                # if name contains IP address then this is shared ip
+                iip_obj = self._vnc_lib.instance_ip_read(id = iip_back_ref['uuid'])
+                name = iip_obj.name
+                if len(name.split(' ')) > 1:
+                    name = name.split(' ')[1]
+
+                # in case of shared ip only delete the link to the VMI
+                try:
+                    socket.inet_aton(name)
+                    iip_obj.del_virtual_machine_interface(port_obj)
+                    self._instance_ip_update(iip_obj)
+                except socket.error:
+                    self._instance_ip_delete(instance_ip_id = iip_back_ref['uuid'])
 
         # disassociate any floating IP used by instance
         fip_back_refs = port_obj.get_floating_ip_back_refs()
