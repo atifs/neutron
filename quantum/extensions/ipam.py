@@ -7,6 +7,7 @@ from quantum.api import extensions
 from quantum import manager
 from oslo.config import cfg
 
+
 # Ipam Exceptions
 class IpamNotFound(qexception.NotFound):
     message = _("IPAM %(id)s could not be found")
@@ -59,6 +60,8 @@ EXTENDED_ATTRIBUTES_2_0 = {
                                   'is_visible': True},
     }
 }
+
+
 class Ipam(object):
 
     @classmethod
@@ -111,6 +114,7 @@ class Ipam(object):
         else:
             return {}
 #end class Ipam
+
 
 class IpamPluginBase(object):
 

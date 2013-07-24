@@ -7,6 +7,7 @@ from quantum.api import extensions
 from quantum import manager
 from oslo.config import cfg
 
+
 # Policy Exceptions
 class PolicyNotFound(qexception.NotFound):
     message = _("Policy %(id)s could not be found")
@@ -30,6 +31,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'is_visible': True, 'default': ''},
     },
 }
+
 
 class Policy(object):
 
@@ -77,6 +79,7 @@ class Policy(object):
         return exts
 
 #end class Policy
+
 
 class PolicyPluginBase(object):
 
