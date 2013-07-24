@@ -144,6 +144,19 @@ class DBInterface(object):
         return instance_obj
     #end _ensure_instance_exists
 
+    def _ensure_default_security_group_exists(self, proj_id):
+        proj_obj = self._vnc_lib.project_read(id = proj_id)
+        for sg_info in proj_obj.get_security_groups():
+            sg_obj = self._vnc_lib.security_group_read(id = sg_info['uuid'])
+            if sg_obj.name == 'default':
+                return    
+
+        sg_obj = SecurityGroup(name = 'default', parent_obj = proj_obj)
+        self._vnc_lib.security_group_create(sg_obj)
+
+        #TODO add default rules
+    #end _ensure_default_security_group_exists
+
     def _get_obj_tenant_id(self, q_type, obj_uuid):
         # Get the mapping from cache, else seed cache and return
         try:
@@ -469,6 +482,8 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" %(project_id) 
 
+        self._ensure_default_security_group_exists(project_uuid)
+
         resp_str = self._vnc_lib.security_groups_list(parent_id = project_uuid)
         resp_dict = json.loads(resp_str)
 
@@ -701,6 +716,13 @@ class DBInterface(object):
         sg_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-','')
         sg_q_dict['name'] = sg_obj.name
         sg_q_dict['description'] = sg_obj.get_id_perms().get_description()
+
+        # get security group rules
+        sg_q_dict['rules'] = []
+        rule_list = self.security_group_rules_read(sg_obj.uuid)
+        if rule_list:
+            for rule in rule_list:
+                sg_q_dict['rules'].append(rule['q_api_data'])
 
         return {'q_api_data': sg_q_dict,
                 'q_extra_data': {}}
@@ -1913,7 +1935,7 @@ class DBInterface(object):
         self._security_group_delete(sg_id)
     #end security_group_delete
 
-    def security_group_list(self, filters = None):
+    def security_group_list(self, context, filters = None):
         ret_list = []
 
         # collect phase
@@ -1923,6 +1945,10 @@ class DBInterface(object):
             for p_id in project_ids:
                 project_sgs = self._security_group_list_project(p_id)
                 all_sgs.append(project_sgs)
+        elif filters and filters.has_key('name'):
+            p_id = str(uuid.UUID(context.tenant))
+            project_sgs = self._security_group_list_project(p_id)
+            all_sgs.append(project_sgs)
         else: # no filters
             dom_projects = self._project_list_domain(None)
             for project in dom_projects:

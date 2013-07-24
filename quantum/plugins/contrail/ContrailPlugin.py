@@ -853,8 +853,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                'name': security_group['name'],
                'tenant_id': security_group['tenant_id'],
                'description': security_group['description']}
-        #res['security_group_rules'] = [self._make_security_group_rule_dict(r)
-        #                               for r in security_group.rules]
+        res['security_group_rules'] = [self._make_security_group_rule_dict(r)
+                                       for r in security_group['rules']]
         return self._fields(res, fields)
 
     def create_security_group(self, context, security_group):
@@ -887,7 +887,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                             page_reverse=False):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            security_groups_info = cfgdb.security_group_list(filters)
+            security_groups_info = cfgdb.security_group_list(context, filters)
 
             security_groups_dicts = []
             for sg_info in security_groups_info:
