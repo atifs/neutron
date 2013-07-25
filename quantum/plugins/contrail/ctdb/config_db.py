@@ -154,7 +154,25 @@ class DBInterface(object):
         sg_obj = SecurityGroup(name = 'default', parent_obj = proj_obj)
         self._vnc_lib.security_group_create(sg_obj)
 
-        #TODO add default rules
+        #allow all egress traffic
+        sgr_uuid = str(uuid.uuid4())
+        rule = PolicyRuleType(rule_uuid = sgr_uuid, direction = '>',
+                              protocol = 'any',
+                              src_addresses = [AddressType(security_group = 'any')], 
+                              src_ports = [PortType(1, 65535)],
+                              dst_addresses = [AddressType(security_group = 'any')], 
+                              dst_ports = [PortType(1, 65535)])
+        self._security_group_rule_create(sg_obj.uuid, rule)
+
+        #allow ingress traffic from within default security group
+        sgr_uuid = str(uuid.uuid4())
+        rule = PolicyRuleType(rule_uuid = sgr_uuid, direction = '<',
+                              protocol = 'any',
+                              src_addresses = [AddressType(security_group = sg_obj.get_fq_name_str())], 
+                              src_ports = [PortType(1, 65535)],
+                              dst_addresses = [AddressType(security_group = 'any')], 
+                              dst_ports = [PortType(1, 65535)])
+        self._security_group_rule_create(sg_obj.uuid, rule)
     #end _ensure_default_security_group_exists
 
     def _get_obj_tenant_id(self, q_type, obj_uuid):
@@ -759,12 +777,18 @@ class DBInterface(object):
 
         remote_cidr = ''
         remote_sg = ''
-        dst_addr = sg_rule.get_dst_addresses()[0]
-        if dst_addr.get_subnet():
-            remote_cidr = '%s/%s' % (dst_addr.get_subnet().get_ip_prefix(),
-                              dst_addr.get_subnet().get_ip_prefix_len())
-        elif dst_addr.get_security_group():
-            remote_sg = dst_addr.get_security_group()
+        if direction == 'ingress':
+            addr = sg_rule.get_src_addresses()[0]
+        else:
+            addr = sg_rule.get_dst_addresses()[0]
+
+        if addr.get_subnet():
+            remote_cidr = '%s/%s' % (addr.get_subnet().get_ip_prefix(),
+                              addr.get_subnet().get_ip_prefix_len())
+        elif addr.get_security_group():
+            if addr.get_security_group() != 'any' and \
+               addr.get_security_group() != 'local':
+                remote_sg = addr.get_security_group()
 
         sgr_q_dict['id'] = sg_rule.get_rule_uuid()
         sgr_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-','') 
@@ -783,36 +807,39 @@ class DBInterface(object):
 
     def _security_group_rule_quantum_to_vnc(self, sgr_q, oper):
         if oper == CREATE:
-            port_min = 0
+            port_min = 1
             port_max = 65535 
             if sgr_q['port_range_min']:
                 port_min = sgr_q['port_range_min']
             if sgr_q['port_range_max']:
                 port_max = sgr_q['port_range_max']
 
-            if sgr_q['direction'] == 'ingress':
-                dir = '<'
-            else:
-                dir = '>'
-
-            remote = None
+            endpt = [AddressType(security_group = 'any')]
             if sgr_q['remote_ip_prefix']:
                 cidr = sgr_q['remote_ip_prefix'].split('/')
                 pfx = cidr[0]
                 pfx_len = int(cidr[1])
-                remote = [AddressType(subnet = SubnetType(pfx, pfx_len))]
+                endpt = [AddressType(subnet = SubnetType(pfx, pfx_len))]
             elif sgr_q['remote_group_id']:
-                remote = [AddressType(security_group = sgr_q['remote_group_id'])]
+                sg_obj = self._vnc_lib.security_group_read(id = sgr_q['remote_group_id'])
+                endpt = [AddressType(security_group = sg_obj.get_fq_name_str())]
+
+            if sgr_q['direction'] == 'ingress':
+                dir = '<'
+                local = endpt
+                remote = [AddressType(security_group = 'local')]
+            else:
+                dir = '>'
+                remote = endpt
+                local = [AddressType(security_group = 'local')]
 
             sgr_uuid = str(uuid.uuid4())
 
-            rule = PolicyRuleType(None, sgr_uuid, dir, 'pass', 
-                                  sgr_q['protocol'],
-                                  None, None, None,
-                                  remote, [PortType(port_min, port_max)], None)
+            rule = PolicyRuleType(rule_uuid = sgr_uuid, direction = dir,
+                                  protocol = sgr_q['protocol'],
+                                  src_addresses = local, src_ports = [PortType(1, 65535)],
+                                  dst_addresses = remote, dst_ports = [PortType(port_min, port_max)])
             return rule
-
-        return sg_vnc, sgr_uuid
     #end _security_group_rule_quantum_to_vnc
 
     def _network_quantum_to_vnc(self, network_q, oper):
@@ -1916,8 +1943,18 @@ class DBInterface(object):
     def security_group_create(self, sg_q):
         sg_obj = self._security_group_quantum_to_vnc(sg_q, CREATE)
         sg_uuid = self._security_group_create(sg_obj)
-        ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
 
+        #allow all egress traffic
+        sgr_uuid = str(uuid.uuid4())
+        rule = PolicyRuleType(rule_uuid = sgr_uuid, direction = '>',
+                              protocol = 'any',
+                              src_addresses = [AddressType(security_group = 'any')], 
+                              src_ports = [PortType(1, 65535)],
+                              dst_addresses = [AddressType(security_group = 'any')], 
+                              dst_ports = [PortType(1, 65535)])
+        self._security_group_rule_create(sg_uuid, rule)
+
+        ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
         return ret_sg_q
     #end security_group_create
 
