@@ -100,10 +100,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         if cls._cfgdb is None:
             # Initialize connection to DB and add default entries
             cls._cfgdb = ctdb.config_db.DBInterface(cls._admin_user,
-                                                    cls._admin_password,
-                                                    cls._admin_tenant_name,
-                                                    cfg.CONF.APISERVER.api_server_ip,
-                                                    cfg.CONF.APISERVER.api_server_port)
+                cls._admin_password, cls._admin_tenant_name,
+                cfg.CONF.APISERVER.api_server_ip,
+                cfg.CONF.APISERVER.api_server_port)
             cls._cfgdb.manager = cls
     #end _connect_to_db
 
@@ -114,10 +113,11 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         user_id = context.user_id
         role = string.join(context.roles, ",")
         if not user_id in cls._cfgdb_map:
-            cls._cfgdb_map[user_id] = ctdb.config_db.DBInterface(cls._admin_user, cls._admin_password, cls._admin_tenant_name,
-                                                    cfg.CONF.APISERVER.api_server_ip,
-                                                    cfg.CONF.APISERVER.api_server_port,
-                                                    user_info={'user_id': user_id, 'role': role})
+            cls._cfgdb_map[user_id] = ctdb.config_db.DBInterface(
+                cls._admin_user, cls._admin_password, cls._admin_tenant_name,
+                cfg.CONF.APISERVER.api_server_ip,
+                cfg.CONF.APISERVER.api_server_port,
+                user_info={'user_id': user_id, 'role': role})
             cls._cfgdb_map[user_id].manager = cls
 
         return cls._cfgdb_map[user_id]
@@ -190,7 +190,10 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         # otherwise refresh
         cls._tenant_list_from_keystone()
         # second time's a charm?
-        return cls._tenant_name_dict[name] if name in cls._tenant_name_dict else name
+        if name in cls._tenant_name_dict:
+            return cls._tenant_name_dict[name]
+        else:
+            return name
     #end tenant_name_to_id
 
     # Network API handlers
@@ -223,7 +226,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             # verify transformation is conforming to api
             if not fields:
                 # should return all fields
-                net_dict = self._make_network_dict(net_info['q_api_data'], fields)
+                net_dict = self._make_network_dict(net_info['q_api_data'],
+                                                   fields)
                 net_dict.update(net_info['q_extra_data'])
             else:
                 net_dict = net_info['q_api_data']
@@ -282,7 +286,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                 n_dict.update(n_info['q_extra_data'])
                 nets_dicts.append(n_dict)
 
-            LOG.debug("get_networks(): filters: " + pformat(filters) + " data: " + pformat(nets_dicts))
+            LOG.debug(
+                "get_networks(): filters: " + pformat(filters) + " data: "
+                + pformat(nets_dicts))
             return nets_dicts
         except Exception as e:
             cgitb.Hook(format="text").handle(sys.exc_info())
@@ -324,7 +330,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             subnet_info = cfgdb.subnet_read(subnet_id)
 
             # verify transformation is conforming to api
-            subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'], fields)
+            subnet_dict = self._make_subnet_dict(subnet_info['q_api_data'],
+                                                 fields)
 
             subnet_dict.update(subnet_info['q_extra_data'])
 
@@ -379,7 +386,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                 sn_dict.update(sn_info['q_extra_data'])
                 subnets_dicts.append(sn_dict)
 
-            LOG.debug("get_subnets(): filters: " + pformat(filters) + " data: " + pformat(subnets_dicts))
+            LOG.debug(
+                "get_subnets(): filters: " + pformat(filters) + " data: "
+                + pformat(subnets_dicts))
             return subnets_dicts
         except Exception as e:
             cgitb.Hook(format="text").handle(sys.exc_info())
@@ -644,7 +653,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def update_floatingip(self, context, fip_id, floatingip):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            fip_info = cfgdb.floatingip_update(fip_id, floatingip['floatingip'])
+            fip_info = cfgdb.floatingip_update(fip_id,
+                                               floatingip['floatingip'])
 
             # verify transformation is conforming to api
             fip_dict = self._make_floatingip_dict(fip_info['q_api_data'])
@@ -807,7 +817,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                 p_dict.update(p_info['q_extra_data'])
                 ports_dicts.append(p_dict)
 
-            LOG.debug("get_ports(): filter: " + pformat(filters) + 'data: ' + pformat(ports_dicts))
+            LOG.debug(
+                "get_ports(): filter: " + pformat(filters) + 'data: '
+                + pformat(ports_dicts))
             return ports_dicts
         except Exception as e:
             cgitb.Hook(format="text").handle(sys.exc_info())
@@ -874,7 +886,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def create_security_group(self, context, security_group):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            sg_info = cfgdb.security_group_create(security_group['security_group'])
+            sg_info = cfgdb.security_group_create(
+                security_group['security_group'])
 
             # verify transformation is conforming to api
             sg_dict = self._make_security_group_dict(sg_info['q_api_data'])
@@ -906,12 +919,15 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             security_groups_dicts = []
             for sg_info in security_groups_info:
                 # verify transformation is conforming to api
-                sg_dict = self._make_security_group_dict(sg_info['q_api_data'], fields)
+                sg_dict = self._make_security_group_dict(sg_info['q_api_data'],
+                                                         fields)
 
                 sg_dict.update(sg_info['q_extra_data'])
                 security_groups_dicts.append(sg_dict)
 
-            LOG.debug("get_security_groups(): filter: " + pformat(filters) + 'data: ' + pformat(security_groups_dicts))
+            LOG.debug(
+                "get_security_groups(): filter: " + pformat(filters)
+                + 'data: ' + pformat(security_groups_dicts))
             return security_groups_dicts
         except Exception as e:
             cgitb.Hook(format="text").handle(sys.exc_info())
@@ -923,7 +939,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             sg_info = cfgdb.security_group_read(id)
 
             # verify transformation is conforming to api
-            sg_dict = self._make_security_group_dict(sg_info['q_api_data'], fields)
+            sg_dict = self._make_security_group_dict(sg_info['q_api_data'],
+                                                     fields)
 
             sg_dict.update(sg_info['q_extra_data'])
 
@@ -936,10 +953,12 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def create_security_group_rule(self, context, security_group_rule):
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
-            sgr_info = cfgdb.security_group_rule_create(security_group_rule['security_group_rule'])
+            sgr_info = cfgdb.security_group_rule_create(
+                security_group_rule['security_group_rule'])
 
             # verify transformation is conforming to api
-            sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'])
+            sgr_dict = self._make_security_group_rule_dict(
+                sgr_info['q_api_data'])
             sgr_dict.update(sgr_info['q_extra_data'])
 
             LOG.debug("create_security_group_rule(): " + pformat(sgr_dict))
@@ -968,11 +987,14 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             for sgr_info in security_group_rules_info:
                 for sgr in sgr_info:
                     # verify transformation is conforming to api
-                    sgr_dict = self._make_security_group_rule_dict(sgr['q_api_data'], fields)
+                    sgr_dict = self._make_security_group_rule_dict(
+                        sgr['q_api_data'], fields)
                     sgr_dict.update(sgr['q_extra_data'])
                     security_group_rules_dicts.append(sgr_dict)
 
-            LOG.debug("get_security_group_rules(): filter: " + pformat(filters) + 'data: ' + pformat(security_group_rules_dicts))
+            LOG.debug(
+                "get_security_group_rules(): filter: " + pformat(filters) +
+                'data: ' + pformat(security_group_rules_dicts))
             return security_group_rules_dicts
         except Exception as e:
             cgitb.Hook(format="text").handle(sys.exc_info())
@@ -986,7 +1008,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             # verify transformation is conforming to api
             sgr_dict = {}
             if sgr_info != {}:
-                sgr_dict = self._make_security_group_rule_dict(sgr_info['q_api_data'], fields)
+                sgr_dict = self._make_security_group_rule_dict(
+                    sgr_info['q_api_data'], fields)
                 sgr_dict.update(sgr_info['q_extra_data'])
 
             LOG.debug("get_security_group_rule(): " + pformat(sgr_dict))
