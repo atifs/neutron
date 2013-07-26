@@ -157,8 +157,9 @@ class DBInterface(object):
 
     def _ensure_default_security_group_exists(self, proj_id):
         proj_obj = self._vnc_lib.project_read(id=proj_id)
-        for sg_info in proj_obj.get_security_groups():
-            sg_obj = self._vnc_lib.security_group_read(id=sg_info['uuid'])
+        sg_groups = proj_obj.get_security_groups()
+        for sg_group in sg_groups or []:
+            sg_obj = self._vnc_lib.security_group_read(id=sg_group['uuid'])
             if sg_obj.name == 'default':
                 return
 
