@@ -28,7 +28,7 @@ RESOURCE_ATTRIBUTE_MAP = {
         'entries': {'allow_post': True, 'allow_put': True,
                     'is_visible': True, 'default': ''},
         'nets_using': {'allow_post': False, 'allow_put': False,
-                    'is_visible': True, 'default': ''},
+                       'is_visible': True, 'default': ''},
     },
 }
 

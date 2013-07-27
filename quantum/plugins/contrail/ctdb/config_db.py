@@ -20,8 +20,7 @@ from quantum.api.v2 import attributes as attr
 from vnc_api.vnc_api import *
 
 _DEFAULT_HEADERS = {
-                    'Content-type': 'application/json; charset="UTF-8"',
-                   }
+    'Content-type': 'application/json; charset="UTF-8"', }
 
 # TODO find if there is a common definition
 CREATE = 1
@@ -134,8 +133,8 @@ class DBInterface(object):
                                   url_path)
 
         return self._request_api_server(
-                        url, request.environ['REQUEST_METHOD'], request.body,
-                        {'Content-type': request.environ['CONTENT_TYPE']})
+            url, request.environ['REQUEST_METHOD'],
+            request.body, {'Content-type': request.environ['CONTENT_TYPE']})
     #end _relay_request
 
     def _obj_to_json(self, obj):
@@ -732,7 +731,7 @@ class DBInterface(object):
                 subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
                 for subnet_vnc in subnet_vncs:
                     cidr = '%s/%s' % (subnet_vnc.subnet.get_ip_prefix(),
-                                     subnet_vnc.subnet.get_ip_prefix_len())
+                                      subnet_vnc.subnet.get_ip_prefix_len())
                     if IPAddress(ip_addr) in IPSet([cidr]):
                         subnet_key = self._subnet_vnc_get_key(subnet_vnc,
                                                               net_obj.uuid)
@@ -803,10 +802,10 @@ class DBInterface(object):
 
         if addr.get_subnet():
             remote_cidr = '%s/%s' % (addr.get_subnet().get_ip_prefix(),
-                              addr.get_subnet().get_ip_prefix_len())
+                                     addr.get_subnet().get_ip_prefix_len())
         elif addr.get_security_group():
             if addr.get_security_group() != 'any' and \
-               addr.get_security_group() != 'local':
+                addr.get_security_group() != 'local':
                 remote_sg = addr.get_security_group()
 
         sgr_q_dict['id'] = sg_rule.get_rule_uuid()
@@ -816,9 +815,9 @@ class DBInterface(object):
         sgr_q_dict['direction'] = direction
         sgr_q_dict['protocol'] = sg_rule.get_protocol()
         sgr_q_dict['port_range_min'] = sg_rule.get_dst_ports()[0].\
-                                       get_start_port()
+            get_start_port()
         sgr_q_dict['port_range_max'] = sg_rule.get_dst_ports()[0].\
-                                       get_end_port()
+            get_end_port()
         sgr_q_dict['remote_ip_prefix'] = remote_cidr
         sgr_q_dict['remote_group_id'] = remote_sg
 
@@ -894,7 +893,8 @@ class DBInterface(object):
                 policy_obj = NetworkPolicy(policy_name, project_obj)
 
                 net_obj.add_network_policy(policy_obj,
-                    VirtualNetworkPolicyType(sequence=SequenceType(seq, 0)))
+                                           VirtualNetworkPolicyType(
+                                           sequence=SequenceType(seq, 0)))
                 seq = seq + 1
 
         return net_obj
@@ -937,7 +937,7 @@ class DBInterface(object):
             net_policy_refs = net_obj.get_network_policy_refs()
             if net_policy_refs:
                 extra_dict['contrail:policys'] = \
-                            [np_ref['to'] for np_ref in net_policy_refs]
+                    [np_ref['to'] for np_ref in net_policy_refs]
 
         elif net_repr == 'LIST':
             extra_dict['contrail:instance_count'] = 0
@@ -989,7 +989,7 @@ class DBInterface(object):
         sn_q_dict['ip_version'] = 4  # TODO ipv6?
 
         cidr = '%s/%s' % (subnet_vnc.subnet.get_ip_prefix(),
-                         subnet_vnc.subnet.get_ip_prefix_len())
+                          subnet_vnc.subnet.get_ip_prefix_len())
         sn_q_dict['cidr'] = cidr
 
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_obj.uuid)
@@ -1007,8 +1007,7 @@ class DBInterface(object):
              'subnet_id': sn_id,
              'first_ip': first_ip,
              'last_ip': last_ip,
-             'available_ranges': {}
-            }]
+             'available_ranges': {}}]
 
         # TODO get from ipam_obj
         sn_q_dict['enable_dhcp'] = False
@@ -1017,8 +1016,7 @@ class DBInterface(object):
 
         sn_q_dict['routes'] = [{'destination': 'TODO-destination',
                                'nexthop': 'TODO-nexthop',
-                               'subnet_id': sn_id
-                              }]
+                               'subnet_id': sn_id}]
 
         sn_q_dict['shared'] = False
 
@@ -1081,14 +1079,14 @@ class DBInterface(object):
             policy_obj = self._vnc_lib.network_policy_read(id=policy_q['id'])
 
         policy_obj.set_network_policy_entries(
-                       PolicyEntriesType.factory(**policy_q['entries']))
+            PolicyEntriesType.factory(**policy_q['entries']))
 
         return policy_obj
     #end _policy_quantum_to_vnc
 
     def _policy_vnc_to_quantum(self, policy_obj):
         policy_q_dict = json.loads(json.dumps(policy_obj,
-                                     default=self._obj_to_json))
+                                              default=self._obj_to_json))
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
@@ -1462,9 +1460,9 @@ class DBInterface(object):
                 subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
                 for subnet_vnc in subnet_vncs:
                     if self._subnet_vnc_get_key(subnet_vnc, net_id) == \
-                           subnet_key:
-                        ret_subnet_q = self._subnet_vnc_to_quantum(subnet_vnc,
-                                           net_obj, ipam_ref['to'])
+                        subnet_key:
+                        ret_subnet_q = self._subnet_vnc_to_quantum(
+                            subnet_vnc, net_obj, ipam_ref['to'])
                         self._db_cache['q_subnets'][subnet_id] = ret_subnet_q
                         return ret_subnet_q
 
@@ -1485,10 +1483,9 @@ class DBInterface(object):
         if ipam_refs:
             for ipam_ref in ipam_refs:
                 orig_subnets = ipam_ref['attr'].get_ipam_subnets()
-                new_subnets = [subnet_vnc for subnet_vnc in orig_subnets \
+                new_subnets = [subnet_vnc for subnet_vnc in orig_subnets
                                if self._subnet_vnc_get_key(subnet_vnc,
-                                                           net_id) !=\
-                                                            subnet_key]
+                               net_id) != subnet_key]
                 if len(orig_subnets) != len(new_subnets):
                     # matched subnet to be deleted
                     ipam_ref['attr'].set_ipam_subnets(new_subnets)
@@ -1875,7 +1872,7 @@ class DBInterface(object):
             for iip_back_ref in iip_back_refs:
                 # if name contains IP address then this is shared ip
                 iip_obj = self._vnc_lib.instance_ip_read(
-                              id=iip_back_ref['uuid'])
+                    id=iip_back_ref['uuid'])
                 name = iip_obj.name
                 if len(name.split(' ')) > 1:
                     name = name.split(' ')[1]
@@ -1932,7 +1929,7 @@ class DBInterface(object):
 
         if not 'device_id' in filters:
             # Listing from back references
-            if  not filters:
+            if not filters:
                 # no filters => return all ports!
                 all_projects = self._project_list_domain(None)
                 all_project_ids = [project['uuid'] for project in all_projects]
@@ -1960,7 +1957,7 @@ class DBInterface(object):
         virtual_machine_ids = filters['device_id']
         for vm_id in virtual_machine_ids:
             resp_str = self._vnc_lib.virtual_machine_interfaces_list(
-                           parent_id=vm_id)
+                parent_id=vm_id)
             resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
