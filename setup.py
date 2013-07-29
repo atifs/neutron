@@ -116,7 +116,8 @@ else:
             ['etc/quantum/plugins/plumgrid/plumgrid.ini']),
         (midonet_plugin_config_path,
             ['etc/quantum/plugins/midonet/midonet.ini']),
-        (contrail_plugin_config_path, ['etc/quantum/plugins/contrail/contrail_plugin.ini'])
+        (contrail_plugin_config_path,
+            ['etc/quantum/plugins/contrail/contrail_plugin.ini'])
     ]
 
     ConsoleScripts = [
