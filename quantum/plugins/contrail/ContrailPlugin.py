@@ -864,11 +864,8 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
     # VPC route table handlers
     def _make_route_table_routes_dict(self, route_table_route, fields=None):
-        res = {'id': route_table_route['id'],
-               'tenant_id': route_table_route['tenant_id'],
-               'route_table_id': route_table_route['route_table_id'],
-               'prefix': route_table_route['prefix'],
-               'nexthop': route_table_route['nexthop']}
+        res = {'prefix': route_table_route['prefix'],
+               'next_hop': route_table_route['next_hop']}
 
         return self._fields(res, fields)
 
@@ -877,7 +874,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                'name': route_table['name'],
                'tenant_id': route_table['tenant_id']}
         res['routes'] = [self._make_route_table_routes_dict(r)
-                              for r in route_table['routes']]
+                              for r in route_table['routes']['route']]
         return self._fields(res, fields)
 
     def create_route_table(self, context, route_table):

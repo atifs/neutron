@@ -842,7 +842,7 @@ class DBInterface(object):
             project_obj = self._project_read(proj_id=project_id)
             rt_vnc = RouteTable(name=rt_q['name'],
                                 parent_obj=project_obj)
-
+            rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
         return rt_vnc
     #end _route_table_quantum_to_vnc
 
@@ -856,7 +856,7 @@ class DBInterface(object):
         rt_q_dict['name'] = rt_obj.name
 
         # get route table routes
-        rt_q_dict['routes'] = []
+        rt_q_dict['routes'] = rt_q_dict.pop('routes', None)
         return {'q_api_data': rt_q_dict,
                 'q_extra_data': {}}
     #end _route_table_vnc_to_quantum
