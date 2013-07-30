@@ -99,7 +99,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         cls._cfgdb_map = {}
         if cls._cfgdb is None:
             sip = cfg.CONF.APISERVER.api_server_ip
-            sport = cfg.CONF.APISERVER.api_server_ip
+            sport = cfg.CONF.APISERVER.api_server_port
             # Initialize connection to DB and add default entries
             cls._cfgdb = ctdb.config_db.DBInterface(cls._admin_user,
                                                     cls._admin_password,
