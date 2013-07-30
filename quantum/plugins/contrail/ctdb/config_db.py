@@ -301,6 +301,29 @@ class DBInterface(object):
         self._vnc_lib.security_group_delete(id=sg_id)
     #end _security_group_delete
 
+    def _svc_instance_create(self, si_obj):
+        si_uuid = self._vnc_lib.service_instance_create(si_obj)
+        st_fq_name = ['default-domain', 'nat-template']
+        st_obj = self._vnc_lib.service_template_read(fq_name=st_fq_name)
+        si_obj.set_service_template(st_obj)
+        self._vnc_lib.service_instance_update(si_obj)
+
+        return si_uuid
+    #end _svc_instance_create
+
+    def _svc_instance_delete(self, si_id):
+        self._vnc_lib.service_instance_delete(id=si_id)
+    #end _svc_instance_delete
+
+    def _route_table_create(self, rt_obj):
+        rt_uuid = self._vnc_lib.route_table_create(rt_obj)
+        return rt_uuid
+    #end _route_table_create
+
+    def _route_table_delete(self, rt_id):
+        self._vnc_lib.route_table_delete(id=rt_id)
+    #end _route_table_delete
+
     def _virtual_network_create(self, net_obj):
         net_uuid = self._vnc_lib.virtual_network_create(net_obj)
 
@@ -537,6 +560,30 @@ class DBInterface(object):
         return resp_dict['security-groups']
     #end _security_group_entries_list_sg
 
+    def _route_table_list_project(self, project_id):
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" % (project_id)
+
+        resp_str = self._vnc_lib.route_tables_list(parent_id=project_uuid)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['route-tables']
+    #end _route_table_list_project
+
+    def _svc_instance_list_project(self, project_id):
+        try:
+            project_uuid = str(uuid.UUID(project_id))
+        except Exception:
+            print "Error in converting uuid %s" % (project_id)
+
+        resp_str = self._vnc_lib.service_instances_list(parent_id=project_uuid)
+        resp_dict = json.loads(resp_str)
+
+        return resp_dict['service-instances']
+    #end _route_table_list_project
+
     def _policy_list_project(self, project_id):
         try:
             project_uuid = str(uuid.UUID(project_id))
@@ -743,6 +790,77 @@ class DBInterface(object):
     #end _ip_address_to_subnet_id
 
     # Conversion routines between VNC and Quantum objects
+    def _svc_instance_quantum_to_vnc(self, si_q, oper):
+        if oper == CREATE:
+            project_id = str(uuid.UUID(si_q['tenant_id']))
+            project_obj = self._project_read(proj_id=project_id)
+            net_id = si_q['internal_net']
+            int_vn = self._vnc_lib.virtual_network_read(id=net_id)
+            net_id = si_q['external_net']
+            ext_vn = self._vnc_lib.virtual_network_read(id=net_id)
+            scale_out = ServiceScaleOutType(max_instances=1, auto_scale=False)
+            si_prop = ServiceInstanceType(
+                      left_virtual_network=int_vn.name,
+                      right_virtual_network=ext_vn.name,
+                      scale_out=scale_out)
+            si_prop.set_scale_out(scale_out)
+            si_vnc = ServiceInstance(name=si_q['name'],
+                         parent_obj=project_obj,
+                         service_instance_properties=si_prop)
+
+        return si_vnc
+    #end _svc_instance_quantum_to_vnc
+
+    def _svc_instance_vnc_to_quantum(self, si_obj):
+        si_q_dict = json.loads(json.dumps(si_obj,
+                               default=self._obj_to_json))
+
+        # replace field names
+        si_q_dict['id'] = si_obj.uuid
+        si_q_dict['tenant_id'] = si_obj.parent_uuid.replace('-', '')
+        si_q_dict['name'] = si_obj.name
+        si_props = si_obj.get_service_instance_properties()
+        if si_props:
+            vn_fq_name = si_obj.get_parent_fq_name()
+            vn_name = si_props.get_left_virtual_network()
+            vn_fq_name.extend([vn_name])
+            vn_obj = self._vnc_lib.virtual_network_read(fq_name=vn_fq_name)
+            si_q_dict['internal_net'] = str(vn_obj.uuid) + ' ' + vn_name
+            vn_fq_name = si_obj.get_parent_fq_name()
+            vn_name = si_props.get_right_virtual_network()
+            vn_fq_name.extend([vn_name])
+            vn_obj = self._vnc_lib.virtual_network_read(fq_name=vn_fq_name)
+            si_q_dict['external_net'] = str(vn_obj.uuid) + ' ' + vn_name
+
+        return {'q_api_data': si_q_dict,
+                'q_extra_data': {}}
+    #end _route_table_vnc_to_quantum
+
+    def _route_table_quantum_to_vnc(self, rt_q, oper):
+        if oper == CREATE:
+            project_id = str(uuid.UUID(rt_q['tenant_id']))
+            project_obj = self._project_read(proj_id=project_id)
+            rt_vnc = RouteTable(name=rt_q['name'],
+                                parent_obj=project_obj)
+
+        return rt_vnc
+    #end _route_table_quantum_to_vnc
+
+    def _route_table_vnc_to_quantum(self, rt_obj):
+        rt_q_dict = json.loads(json.dumps(rt_obj,
+                               default=self._obj_to_json))
+
+        # replace field names
+        rt_q_dict['id'] = rt_obj.uuid
+        rt_q_dict['tenant_id'] = rt_obj.parent_uuid.replace('-', '')
+        rt_q_dict['name'] = rt_obj.name
+
+        # get route table routes
+        rt_q_dict['routes'] = []
+        return {'q_api_data': rt_q_dict,
+                'q_extra_data': {}}
+    #end _route_table_vnc_to_quantum
+
     def _security_group_vnc_to_quantum(self, sg_obj):
         sg_q_dict = json.loads(json.dumps(sg_obj,
                                default=self._obj_to_json))
@@ -2136,5 +2254,123 @@ class DBInterface(object):
 
         return ret_list
     #end security_group_rule_list
+
+    #route table api handlers
+    def route_table_create(self, rt_q):
+        rt_obj = self._route_table_quantum_to_vnc(rt_q, CREATE)
+        rt_uuid = self._route_table_create(rt_obj)
+        ret_rt_q = self._route_table_vnc_to_quantum(rt_obj)
+        return ret_rt_q
+    #end security_group_create
+
+    def route_table_read(self, rt_id):
+        try:
+            rt_obj = self._vnc_lib.route_table_read(id=rt_id)
+        except NoIdError:
+            # TODO add route table specific exception
+            raise exceptions.NetworkNotFound(net_id=rt_id)
+
+        return self._route_table_vnc_to_quantum(rt_obj)
+    #end route_table_read
+
+    def route_table_delete(self, rt_id):
+        self._route_table_delete(rt_id)
+    #end route_table_delete
+
+    def route_table_list(self, context, filters=None):
+        ret_list = []
+
+        # collect phase
+        all_rts = []  # all rts in all projects
+        if filters and 'tenant_id' in filters:
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_rts = self._route_table_list_project(p_id)
+                all_rts.append(project_rts)
+        elif filters and 'name' in filters:
+            p_id = str(uuid.UUID(context.tenant))
+            project_rts = self._route_table_list_project(p_id)
+            all_rts.append(project_rts)
+        else:  # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                proj_id = project['uuid']
+                project_rts = self._route_table_list_project(proj_id)
+                all_rts.append(project_rts)
+
+        # prune phase
+        for project_rts in all_rts:
+            for proj_rt in project_rts:
+                # TODO implement same for name specified in filter
+                proj_rt_id = proj_rt['uuid']
+                if not self._filters_is_present(filters, 'id', proj_rt_id):
+                    continue
+                rt_info = self.route_table_read(proj_rt_id)
+                if not self._filters_is_present(filters, 'name',
+                                                rt_info['q_api_data']['name']):
+                    continue
+                ret_list.append(rt_info)
+
+        return ret_list
+    #end route_table_list
+
+    #service instance api handlers
+    def svc_instance_create(self, si_q):
+        si_obj = self._svc_instance_quantum_to_vnc(si_q, CREATE)
+        si_uuid = self._svc_instance_create(si_obj)
+        ret_si_q = self._svc_instance_vnc_to_quantum(si_obj)
+        return ret_si_q
+    #end svc_instance_create
+
+    def svc_instance_read(self, si_id):
+        try:
+            si_obj = self._vnc_lib.service_instance_read(id=si_id)
+        except NoIdError:
+            # TODO add svc instance specific exception
+            raise exceptions.NetworkNotFound(net_id=si_id)
+
+        return self._svc_instance_vnc_to_quantum(si_obj)
+    #end svc_instance_read
+
+    def svc_instance_delete(self, si_id):
+        self._svc_instance_delete(si_id)
+    #end svc_instance_delete
+
+    def svc_instance_list(self, context, filters=None):
+        ret_list = []
+
+        # collect phase
+        all_sis = []  # all sis in all projects
+        if filters and 'tenant_id' in filters:
+            project_ids = filters['tenant_id']
+            for p_id in project_ids:
+                project_sis = self._svc_instance_list_project(p_id)
+                all_sis.append(project_sis)
+        elif filters and 'name' in filters:
+            p_id = str(uuid.UUID(context.tenant))
+            project_sis = self._svc_instance_list_project(p_id)
+            all_sis.append(project_sis)
+        else:  # no filters
+            dom_projects = self._project_list_domain(None)
+            for project in dom_projects:
+                proj_id = project['uuid']
+                project_sis = self._svc_instance_list_project(proj_id)
+                all_sis.append(project_sis)
+
+        # prune phase
+        for project_sis in all_sis:
+            for proj_si in project_sis:
+                # TODO implement same for name specified in filter
+                proj_si_id = proj_si['uuid']
+                if not self._filters_is_present(filters, 'id', proj_si_id):
+                    continue
+                si_info = self.svc_instance_read(proj_si_id)
+                if not self._filters_is_present(filters, 'name',
+                                                si_info['q_api_data']['name']):
+                    continue
+                ret_list.append(si_info)
+
+        return ret_list
+    #end svc_instance_list
 
 #end class DBInterface

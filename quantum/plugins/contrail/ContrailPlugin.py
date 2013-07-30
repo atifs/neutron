@@ -14,7 +14,7 @@ from pprint import pformat
 from quantum.manager import QuantumManager
 from quantum.common import exceptions as exc
 from quantum.db import db_base_plugin_v2
-from quantum.extensions import l3, securitygroup
+from quantum.extensions import l3, securitygroup, vpcroutetable
 
 from oslo.config import cfg
 from httplib2 import Http
@@ -60,13 +60,14 @@ def _read_cfg_boolean(cfg_parser, section, option, default):
 #TODO define ABC PluginBase for ipam and policy and derive mixin from them
 class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
                      l3.RouterPluginBase,
-                     securitygroup.SecurityGroupPluginBase):
+                     securitygroup.SecurityGroupPluginBase,
+                     vpcroutetable.RouteTablePluginBase):
     """
     .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
     supported_extension_aliases = ["ipam", "policy", "security-group",
-                                   "router"]
+                                   "router", "route-table"]
     _cfgdb = None
     _args = None
     _tenant_id_dict = {}
@@ -860,6 +861,169 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         """
         self._get_port(tenant_id, net_id, port_id)
         db.port_unset_attachment(port_id, net_id)
+
+    # VPC route table handlers
+    def _make_route_table_routes_dict(self, route_table_route, fields=None):
+        res = {'id': route_table_route['id'],
+               'tenant_id': route_table_route['tenant_id'],
+               'route_table_id': route_table_route['route_table_id'],
+               'prefix': route_table_route['prefix'],
+               'nexthop': route_table_route['nexthop']}
+
+        return self._fields(res, fields)
+
+    def _make_route_table_dict(self, route_table, fields=None):
+        res = {'id': route_table['id'],
+               'name': route_table['name'],
+               'tenant_id': route_table['tenant_id']}
+        res['routes'] = [self._make_route_table_routes_dict(r)
+                              for r in route_table['routes']]
+        return self._fields(res, fields)
+
+    def create_route_table(self, context, route_table):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            rt_info = cfgdb.route_table_create(
+                          route_table['route_table'])
+
+            # verify transformation is conforming to api
+            rt_dict = self._make_route_table_dict(rt_info['q_api_data'])
+
+            rt_dict.update(rt_info['q_extra_data'])
+
+            LOG.debug("create_route_table(): " + pformat(rt_dict))
+            return rt_dict
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def delete_route_table(self, context, id):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.route_table_delete(id)
+            LOG.debug("delete_route_table(): " + pformat(id))
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def get_route_tables(self, context, filters=None, fields=None,
+                         sorts=None, limit=None, marker=None,
+                         page_reverse=False):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            route_tables_info = cfgdb.route_table_list(context, filters)
+
+            route_tables_dicts = []
+            for rt_info in route_tables_info:
+                # verify transformation is conforming to api
+                rt_dict = self._make_route_table_dict(rt_info['q_api_data'],
+                                                      fields)
+
+                rt_dict.update(rt_info['q_extra_data'])
+                route_tables_dicts.append(rt_dict)
+
+            LOG.debug(
+                "get_route_tables(): filter: " + pformat(filters)
+                + 'data: ' + pformat(route_tables_dicts))
+            return route_tables_dicts
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def get_route_table(self, context, id, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            rt_info = cfgdb.route_table_read(id)
+
+            # verify transformation is conforming to api
+            rt_dict = self._make_route_table_dict(rt_info['q_api_data'],
+                                                  fields)
+
+            rt_dict.update(rt_info['q_extra_data'])
+
+            LOG.debug("get_route_table(): " + pformat(rt_dict))
+            return self._fields(rt_dict, fields)
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    # VPC route table svc instance handlers
+    def _make_svc_instance_dict(self, svc_instance, fields=None):
+        res = {'id': svc_instance['id'],
+               'name': svc_instance['name'],
+               'tenant_id': svc_instance['tenant_id']}
+        if svc_instance['internal_net']:
+            res['internal_net'] = svc_instance['internal_net']
+        if svc_instance['external_net']:
+            res['external_net'] = svc_instance['external_net']
+        return self._fields(res, fields)
+
+    def create_nat_instance(self, context, nat_instance):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            si_info = cfgdb.svc_instance_create(
+                          nat_instance['nat_instance'])
+
+            # verify transformation is conforming to api
+            si_dict = self._make_svc_instance_dict(si_info['q_api_data'])
+
+            si_dict.update(si_info['q_extra_data'])
+
+            LOG.debug("create_nat_instance(): " + pformat(si_dict))
+            return si_dict
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def delete_nat_instance(self, context, id):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            cfgdb.svc_instance_delete(id)
+            LOG.debug("delete_nat_instance(): " + pformat(id))
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def get_nat_instances(self, context, filters=None, fields=None,
+                          sorts=None, limit=None, marker=None,
+                          page_reverse=False):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            svc_instances_info = cfgdb.svc_instance_list(context, filters)
+
+            svc_instances_dicts = []
+            for si_info in svc_instances_info:
+                # verify transformation is conforming to api
+                si_dict = self._make_svc_instance_dict(si_info['q_api_data'],
+                                                       fields)
+
+                si_dict.update(si_info['q_extra_data'])
+                svc_instances_dicts.append(si_dict)
+
+            LOG.debug(
+                "get_nat_instances(): filter: " + pformat(filters)
+                + 'data: ' + pformat(svc_instances_dicts))
+            return svc_instances_dicts
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
+
+    def get_nat_instance(self, context, id, fields=None):
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            si_info = cfgdb.svc_instance_read(id)
+
+            # verify transformation is conforming to api
+            si_dict = self._make_svc_instance_dict(si_info['q_api_data'],
+                                                   fields)
+
+            si_dict.update(si_info['q_extra_data'])
+
+            LOG.debug("get_nat_instance(): " + pformat(si_dict))
+            return self._fields(si_dict, fields)
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
 
     # Security Group handlers
     def _make_security_group_rule_dict(self, security_group_rule, fields=None):
