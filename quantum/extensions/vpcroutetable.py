@@ -43,6 +43,9 @@ RESOURCE_ATTRIBUTE_MAP = {
         'name': {'allow_post': True, 'allow_put': False,
                  'is_visible': True, 'default': '',
                  'validate': {'type:name_not_default': None}},
+        'fq_name': {'allow_post': True, 'allow_put': False,
+                    'is_visible': True, 'default': '',
+                    'validate': {'type:name_not_default': None}},
         'routes': {'allow_post': True, 'allow_put': True,
                    'is_visible': True, 'default': ''},
         'tenant_id': {'allow_post': True, 'allow_put': False,
@@ -57,10 +60,17 @@ RESOURCE_ATTRIBUTE_MAP = {
         'name': {'allow_post': True, 'allow_put': False,
                  'is_visible': True, 'default': '',
                  'validate': {'type:name_not_default': None}},
+        'fq_name': {'allow_post': True, 'allow_put': False,
+                    'is_visible': True, 'default': '',
+                    'validate': {'type:name_not_default': None}},
         'internal_net': {'allow_post': True, 'allow_put': False,
                          'is_visible': True, 'default': ''},
+        'internal_ip': {'allow_post': True, 'allow_put': False,
+                        'is_visible': True, 'default': ''},
         'external_net': {'allow_post': True, 'allow_put': False,
                          'is_visible': True, 'default': ''},
+        'external_ip': {'allow_post': True, 'allow_put': False,
+                        'is_visible': True, 'default': ''},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
                       'is_visible': True},
@@ -69,8 +79,8 @@ RESOURCE_ATTRIBUTE_MAP = {
 
 EXTENDED_ATTRIBUTES_2_0 = {
     'networks': {
-        'vpc:route_table': {'allow_post': False,
-                            'allow_put': False,
+        'vpc:route_table': {'allow_post': True,
+                            'allow_put': True,
                             'is_visible': True},
     }
 }
@@ -124,6 +134,11 @@ class Vpcroutetable(extensions.ExtensionDescriptor):
 
         return exts
 
+    def get_extended_resources(self, version):
+        if version == "2.0":
+            return EXTENDED_ATTRIBUTES_2_0
+        else:
+            return {}
 
 class RouteTablePluginBase(object):
     __metaclass__ = ABCMeta

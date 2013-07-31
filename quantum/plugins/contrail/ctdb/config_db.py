@@ -800,6 +800,7 @@ class DBInterface(object):
             ext_vn = self._vnc_lib.virtual_network_read(id=net_id)
             scale_out = ServiceScaleOutType(max_instances=1, auto_scale=False)
             si_prop = ServiceInstanceType(
+                      auto_policy=True,
                       left_virtual_network=int_vn.name,
                       right_virtual_network=ext_vn.name,
                       scale_out=scale_out)
@@ -854,6 +855,7 @@ class DBInterface(object):
         rt_q_dict['id'] = rt_obj.uuid
         rt_q_dict['tenant_id'] = rt_obj.parent_uuid.replace('-', '')
         rt_q_dict['name'] = rt_obj.name
+        rt_q_dict['fq_name'] = rt_obj.fq_name
 
         # get route table routes
         rt_q_dict['routes'] = rt_q_dict.pop('routes', None)
@@ -1014,6 +1016,15 @@ class DBInterface(object):
                                            VirtualNetworkPolicyType(
                                            sequence=SequenceType(seq, 0)))
                 seq = seq + 1
+
+        if 'vpc:route_table' in network_q:
+            rt_fq_name = network_q['vpc:route_table']
+            try:
+                rt_obj = self._vnc_lib.route_table_read(fq_name=rt_fq_name)
+                net_obj.set_route_table(rt_obj)
+            except NoIdError:
+                # TODO add route table specific exception
+                raise exceptions.NetworkNotFound(net_id=net_obj.uuid)
 
         return net_obj
     #end _network_quantum_to_vnc

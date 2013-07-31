@@ -872,9 +872,11 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     def _make_route_table_dict(self, route_table, fields=None):
         res = {'id': route_table['id'],
                'name': route_table['name'],
+               'fq_name': route_table['fq_name'],
                'tenant_id': route_table['tenant_id']}
-        res['routes'] = [self._make_route_table_routes_dict(r)
-                              for r in route_table['routes']['route']]
+        if route_table['routes']:
+            res['routes'] = [self._make_route_table_routes_dict(r)
+                             for r in route_table['routes']['route']]
         return self._fields(res, fields)
 
     def create_route_table(self, context, route_table):
