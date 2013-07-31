@@ -153,6 +153,10 @@ class RouteTablePluginBase(object):
         pass
 
     @abstractmethod
+    def update_route_table(self, context, id, route_table):
+        pass
+
+    @abstractmethod
     def get_route_tables(self, context, filters=None, fields=None,
                          sorts=None, limit=None, marker=None,
                          page_reverse=False):

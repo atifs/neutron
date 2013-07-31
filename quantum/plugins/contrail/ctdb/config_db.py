@@ -844,6 +844,10 @@ class DBInterface(object):
             rt_vnc = RouteTable(name=rt_q['name'],
                                 parent_obj=project_obj)
             rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
+        else:
+            rt_vnc = self._vnc_lib.route_table_read(id=rt_q['id'])
+            rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
+
         return rt_vnc
     #end _route_table_quantum_to_vnc
 
@@ -2283,6 +2287,13 @@ class DBInterface(object):
 
         return self._route_table_vnc_to_quantum(rt_obj)
     #end route_table_read
+
+    def route_table_update(self, rt_id, rt_q):
+        rt_q['id'] = rt_id
+        rt_obj = self._route_table_quantum_to_vnc(rt_q, UPDATE)
+        self._vnc_lib.route_table_update(rt_obj)
+        return self._route_table_vnc_to_quantum(rt_obj)
+    #end policy_update
 
     def route_table_delete(self, rt_id):
         self._route_table_delete(rt_id)

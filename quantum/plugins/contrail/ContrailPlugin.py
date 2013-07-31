@@ -887,9 +887,23 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             # verify transformation is conforming to api
             rt_dict = self._make_route_table_dict(rt_info['q_api_data'])
-
             rt_dict.update(rt_info['q_extra_data'])
+            LOG.debug("create_route_table(): " + pformat(rt_dict))
+            return rt_dict
+        except Exception as e:
+            cgitb.Hook(format="text").handle(sys.exc_info())
+            raise e
 
+    def update_route_table(self, context, id, route_table):
+        """
+        Updates the attributes of a particular route table.
+        """
+        try:
+            cfgdb = ContrailPlugin._get_user_cfgdb(context)
+            rt_info = cfgdb.route_table_update(id, route_table['route_table'])
+
+            rt_dict = self._make_route_table_dict(rt_info['q_api_data'])
+            rt_dict.update(rt_info['q_extra_data'])
             LOG.debug("create_route_table(): " + pformat(rt_dict))
             return rt_dict
         except Exception as e:
