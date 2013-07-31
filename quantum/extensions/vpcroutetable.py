@@ -81,6 +81,7 @@ EXTENDED_ATTRIBUTES_2_0 = {
     'networks': {
         'vpc:route_table': {'allow_post': True,
                             'allow_put': True,
+                            'default': '',
                             'is_visible': True},
     }
 }

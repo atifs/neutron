@@ -1023,12 +1023,13 @@ class DBInterface(object):
 
         if 'vpc:route_table' in network_q:
             rt_fq_name = network_q['vpc:route_table']
-            try:
-                rt_obj = self._vnc_lib.route_table_read(fq_name=rt_fq_name)
-                net_obj.set_route_table(rt_obj)
-            except NoIdError:
-                # TODO add route table specific exception
-                raise exceptions.NetworkNotFound(net_id=net_obj.uuid)
+            if rt_fq_name:
+                try:
+                    rt_obj = self._vnc_lib.route_table_read(fq_name=rt_fq_name)
+                    net_obj.set_route_table(rt_obj)
+                except NoIdError:
+                    # TODO add route table specific exception
+                    raise exceptions.NetworkNotFound(net_id=net_obj.uuid)
 
         return net_obj
     #end _network_quantum_to_vnc
