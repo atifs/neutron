@@ -140,6 +140,7 @@ class Vpcroutetable(extensions.ExtensionDescriptor):
         else:
             return {}
 
+
 class RouteTablePluginBase(object):
     __metaclass__ = ABCMeta
 
