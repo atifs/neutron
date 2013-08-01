@@ -978,6 +978,9 @@ class DBInterface(object):
                 remote = endpt
                 local = [AddressType(security_group='local')]
 
+            if not sgr_q['protocol']:
+                sgr_q['protocol'] = 'any'
+
             sgr_uuid = str(uuid.uuid4())
 
             rule = PolicyRuleType(rule_uuid=sgr_uuid, direction=dir,
