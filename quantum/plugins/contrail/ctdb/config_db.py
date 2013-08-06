@@ -918,7 +918,7 @@ class DBInterface(object):
             direction = 'ingress'
 
         remote_cidr = ''
-        remote_sg = ''
+        remote_sg_uuid = ''
         if direction == 'ingress':
             addr = sg_rule.get_src_addresses()[0]
         else:
@@ -931,6 +931,11 @@ class DBInterface(object):
             if addr.get_security_group() != 'any' and \
                 addr.get_security_group() != 'local':
                 remote_sg = addr.get_security_group()
+                try:
+                    remote_sg_obj = self._vnc_lib.security_group_read(fq_name_str=remote_sg)
+                    remote_sg_uuid = remote_sg_obj.uuid
+                except NoIdError:
+                    pass
 
         sgr_q_dict['id'] = sg_rule.get_rule_uuid()
         sgr_q_dict['tenant_id'] = sg_obj.parent_uuid.replace('-', '')
@@ -943,7 +948,7 @@ class DBInterface(object):
         sgr_q_dict['port_range_max'] = sg_rule.get_dst_ports()[0].\
             get_end_port()
         sgr_q_dict['remote_ip_prefix'] = remote_cidr
-        sgr_q_dict['remote_group_id'] = remote_sg
+        sgr_q_dict['remote_group_id'] = remote_sg_uuid
 
         return {'q_api_data': sgr_q_dict,
                 'q_extra_data': {}}
