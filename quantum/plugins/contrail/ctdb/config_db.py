@@ -1390,7 +1390,7 @@ class DBInterface(object):
         port_q_dict['device_owner'] = 'TODO-device-owner'
 
         return {'q_api_data': port_q_dict,
-                'q_extra_data': {}}
+                'q_extra_data': {'port_security_enabled':True}}
     #end _port_vnc_to_quantum
 
     # public methods

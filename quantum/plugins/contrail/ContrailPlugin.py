@@ -67,7 +67,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
     """
 
     supported_extension_aliases = ["ipam", "policy", "security-group",
-                                   "router", "route-table"]
+                                   "router", "route-table", "port-security"]
     _cfgdb = None
     _args = None
     _tenant_id_dict = {}
