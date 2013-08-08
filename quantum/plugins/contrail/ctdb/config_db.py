@@ -1312,14 +1312,15 @@ class DBInterface(object):
             port_obj.uuid = port_name
             port_obj.set_virtual_network(net_obj)
 
-            if port_q['security_groups'].__class__ is not object:
-                for sg_id in port_q['security_groups']:
-                    sg_obj = self._vnc_lib.security_group_read(id=sg_id)
-                    port_obj.add_security_group(sg_obj)
-
         else:  # READ/UPDATE/DELETE
             port_obj = self._virtual_machine_interface_read(
                 port_id=port_q['id'])
+
+        port_obj.set_security_group_list([])
+        if port_q['security_groups'].__class__ is not object:
+            for sg_id in port_q['security_groups']:
+                sg_obj = self._vnc_lib.security_group_read(id=sg_id)
+                port_obj.add_security_group(sg_obj)
 
         id_perms = port_obj.get_id_perms()
         if 'admin_state_up' in port_q:
