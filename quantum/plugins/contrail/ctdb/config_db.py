@@ -166,27 +166,25 @@ class DBInterface(object):
         self._vnc_lib.security_group_create(sg_obj)
 
         #allow all egress traffic
-        sgr_uuid = str(uuid.uuid4())
-        rule = PolicyRuleType(rule_uuid=sgr_uuid, direction='>',
-                              protocol='any',
-                              src_addresses=[AddressType(
-                                  security_group='any')],
-                              src_ports=[PortType(1, 65535)],
-                              dst_addresses=[AddressType(
-                                  security_group='any')],
-                              dst_ports=[PortType(1, 65535)])
+        def_rule = {}
+        def_rule['port_range_min'] = 0
+        def_rule['port_range_max'] = 65535
+        def_rule['direction'] = 'egress'
+        def_rule['remote_ip_prefix'] = None
+        def_rule['remote_group_id'] = None
+        def_rule['protocol'] = 'any'
+        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
 
         #allow ingress traffic from within default security group
-        sgr_uuid = str(uuid.uuid4())
-        rule = PolicyRuleType(rule_uuid=sgr_uuid, direction='<',
-                              protocol='any',
-                              src_addresses=[AddressType(
-                                  security_group=sg_obj.get_fq_name_str())],
-                              src_ports=[PortType(1, 65535)],
-                              dst_addresses=[AddressType(
-                                  security_group='any')],
-                              dst_ports=[PortType(1, 65535)])
+        def_rule = {}
+        def_rule['port_range_min'] = 0
+        def_rule['port_range_max'] = 65535
+        def_rule['direction'] = 'ingress'
+        def_rule['remote_ip_prefix'] = None
+        def_rule['remote_group_id'] = sg_obj.uuid
+        def_rule['protocol'] = 'any'
+        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
     #end _ensure_default_security_group_exists
 
@@ -956,7 +954,7 @@ class DBInterface(object):
 
     def _security_group_rule_quantum_to_vnc(self, sgr_q, oper):
         if oper == CREATE:
-            port_min = 1
+            port_min = 0
             port_max = 65535
             if sgr_q['port_range_min']:
                 port_min = sgr_q['port_range_min']
@@ -991,7 +989,7 @@ class DBInterface(object):
             rule = PolicyRuleType(rule_uuid=sgr_uuid, direction=dir,
                                   protocol=sgr_q['protocol'],
                                   src_addresses=local,
-                                  src_ports=[PortType(1, 65535)],
+                                  src_ports=[PortType(0, 65535)],
                                   dst_addresses=remote,
                                   dst_ports=[PortType(port_min, port_max)])
             return rule
@@ -1385,13 +1383,19 @@ class DBInterface(object):
 
                 port_q_dict['fixed_ips'].append(ip_q_dict)
 
+        sg_dict = {'port_security_enabled': True}
+        sg_dict['security_groups'] = []
+        sg_refs = port_obj.get_security_group_refs()
+        for sg_ref in sg_refs or []:
+            sg_dict['security_groups'].append(sg_ref['uuid'])
+
         port_q_dict['admin_state_up'] = port_obj.get_id_perms().enable
         port_q_dict['status'] = constants.PORT_STATUS_ACTIVE
         port_q_dict['device_id'] = port_obj.parent_name
         port_q_dict['device_owner'] = 'TODO-device-owner'
 
         return {'q_api_data': port_q_dict,
-                'q_extra_data': {'port_security_enabled':True}}
+                'q_extra_data': sg_dict}
     #end _port_vnc_to_quantum
 
     # public methods
@@ -2139,15 +2143,14 @@ class DBInterface(object):
         sg_uuid = self._security_group_create(sg_obj)
 
         #allow all egress traffic
-        sgr_uuid = str(uuid.uuid4())
-        rule = PolicyRuleType(rule_uuid=sgr_uuid, direction='>',
-                              protocol='any',
-                              src_addresses=[AddressType(
-                                  security_group='any')],
-                              src_ports=[PortType(1, 65535)],
-                              dst_addresses=[AddressType(
-                                  security_group='any')],
-                              dst_ports=[PortType(1, 65535)])
+        def_rule = {}
+        def_rule['port_range_min'] = 0
+        def_rule['port_range_max'] = 65535
+        def_rule['direction'] = 'egress'
+        def_rule['remote_ip_prefix'] = None
+        def_rule['remote_group_id'] = None
+        def_rule['protocol'] = 'any'
+        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_uuid, rule)
 
         ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
