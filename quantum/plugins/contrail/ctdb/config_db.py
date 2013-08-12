@@ -182,7 +182,7 @@ class DBInterface(object):
         def_rule['port_range_max'] = 65535
         def_rule['direction'] = 'ingress'
         def_rule['remote_ip_prefix'] = None
-        def_rule['remote_group_id'] = sg_obj.uuid
+        def_rule['remote_group_id'] = None
         def_rule['protocol'] = 'any'
         rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
