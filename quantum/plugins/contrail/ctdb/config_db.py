@@ -1267,7 +1267,7 @@ class DBInterface(object):
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
-        policy_q_dict['tenant_id'] = policy_obj.uuid.replace('-', '')
+        policy_q_dict['tenant_id'] = policy_obj.parent_uuid.replace('-', '')
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries',
                                                      None)
         net_back_refs = policy_q_dict.pop('virtual_network_back_refs', None)
