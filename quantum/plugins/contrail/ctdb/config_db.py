@@ -51,6 +51,7 @@ class DBInterface(object):
         self._db_cache['q_fixed_ip_to_subnet'] = {}
         #obj-uuid to tenant-uuid mapping
         self._db_cache['q_obj_to_tenant'] = {}
+        self._db_cache['q_tenant_to_def_sg'] = {}
         #port count per tenant-id
         self._db_cache['q_tenant_port_count'] = {}
         self._db_cache['vnc_networks'] = {}
@@ -155,13 +156,24 @@ class DBInterface(object):
     #end _ensure_instance_exists
 
     def _ensure_default_security_group_exists(self, proj_id):
+        # check in cache
+        sg_uuid = self._db_cache_read('q_tenant_to_def_sg', proj_id)
+        try:
+            if self._vnc_lib.id_to_fq_name(sg_uuid)[-1] == 'default':
+                return
+        except Exception:
+            pass
+
+        # check in api server
         proj_obj = self._vnc_lib.project_read(id=proj_id)
         sg_groups = proj_obj.get_security_groups()
         for sg_group in sg_groups or []:
-            sg_obj = self._vnc_lib.security_group_read(id=sg_group['uuid'])
-            if sg_obj.name == 'default':
+            if sg_group['to'][-1] == 'default':
+                self._db_cache_write('q_tenant_to_def_sg', 
+                                     proj_id, sg_group['uuid'])
                 return
 
+        # does not exist hence create
         sg_obj = SecurityGroup(name='default', parent_obj=proj_obj)
         self._vnc_lib.security_group_create(sg_obj)
 
@@ -186,7 +198,32 @@ class DBInterface(object):
         def_rule['protocol'] = 'any'
         rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
+
+        # add to cache
+        self._db_cache_write('q_tenant_to_def_sg', proj_id, sg_obj.uuid)
     #end _ensure_default_security_group_exists
+
+    def _db_cache_read(self, table, key):
+        try:
+            return self._db_cache[table][key]
+        except KeyError:
+            return None
+    #end _db_cache_read
+
+    def _db_cache_write(self, table, key, val):
+        self._db_cache[table][key] = val
+    #end _db_cache_write
+
+    def _db_cache_delete(self, table, key):
+        try:
+            del self._db_cache[table][key]
+        except Exception:
+            pass
+    #end _db_cache_delete
+
+    def _db_cache_flush(self, table):
+        self._db_cache[table] = {}
+    #end _db_cache_delete
 
     def _get_obj_tenant_id(self, q_type, obj_uuid):
         # Get the mapping from cache, else seed cache and return
@@ -2169,6 +2206,7 @@ class DBInterface(object):
 
     def security_group_delete(self, sg_id):
         self._security_group_delete(sg_id)
+        self._db_cache_flush('q_tenant_to_def_sg')
     #end security_group_delete
 
     def security_group_list(self, context, filters=None):
