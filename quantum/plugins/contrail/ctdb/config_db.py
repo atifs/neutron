@@ -1122,6 +1122,11 @@ class DBInterface(object):
             if port_back_refs:
                 extra_dict['contrail:instance_count'] = len(port_back_refs)
 
+        rt_refs = net_obj.get_route_table_refs()
+        if rt_refs:
+            extra_dict['vpc:route_table'] = \
+                [rt_ref['to'] for rt_ref in rt_refs]
+
         ipam_refs = net_obj.get_network_ipam_refs()
         net_q_dict['subnets'] = []
         if ipam_refs:
