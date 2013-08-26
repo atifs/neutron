@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #
 # Copyright (c) 2013 Brocade Communications Systems, Inc.
 # All Rights Reserved.
