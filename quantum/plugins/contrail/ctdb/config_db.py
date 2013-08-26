@@ -158,11 +158,8 @@ class DBInterface(object):
     def _ensure_default_security_group_exists(self, proj_id):
         # check in cache
         sg_uuid = self._db_cache_read('q_tenant_to_def_sg', proj_id)
-        try:
-            if self._vnc_lib.id_to_fq_name(sg_uuid)[-1] == 'default':
-                return
-        except Exception:
-            pass
+        if sg_uuid:
+            return
 
         # check in api server
         proj_obj = self._vnc_lib.project_read(id=proj_id)
@@ -173,9 +170,10 @@ class DBInterface(object):
                                      proj_id, sg_group['uuid'])
                 return
 
-        # does not exist hence create
+        # does not exist hence create and add cache
         sg_obj = SecurityGroup(name='default', parent_obj=proj_obj)
         self._vnc_lib.security_group_create(sg_obj)
+        self._db_cache_write('q_tenant_to_def_sg', proj_id, sg_obj.uuid)
 
         #allow all egress traffic
         def_rule = {}
@@ -198,9 +196,6 @@ class DBInterface(object):
         def_rule['protocol'] = 'any'
         rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
-
-        # add to cache
-        self._db_cache_write('q_tenant_to_def_sg', proj_id, sg_obj.uuid)
     #end _ensure_default_security_group_exists
 
     def _db_cache_read(self, table, key):
