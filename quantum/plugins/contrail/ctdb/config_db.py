@@ -171,9 +171,11 @@ class DBInterface(object):
                 return
 
         # does not exist hence create and add cache
+        sg_uuid = str(uuid.uuid4())
+        self._db_cache_write('q_tenant_to_def_sg', proj_id, sg_uuid)
         sg_obj = SecurityGroup(name='default', parent_obj=proj_obj)
+        sg_obj.uuid = sg_uuid
         self._vnc_lib.security_group_create(sg_obj)
-        self._db_cache_write('q_tenant_to_def_sg', proj_id, sg_obj.uuid)
 
         #allow all egress traffic
         def_rule = {}
