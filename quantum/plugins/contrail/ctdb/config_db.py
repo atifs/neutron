@@ -572,8 +572,6 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        self._ensure_default_security_group_exists(project_uuid)
-
         resp_str = self._vnc_lib.security_groups_list(parent_id=project_uuid)
         resp_dict = json.loads(resp_str)
 
