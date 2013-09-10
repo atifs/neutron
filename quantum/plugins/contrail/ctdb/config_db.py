@@ -945,18 +945,16 @@ class DBInterface(object):
             # TODO add security group specific exception
             raise exceptions.NetworkNotFound(net_id=sg_id)
 
+        direction = 'egress'
+        if sg_rule.get_direction() == '<':
+            direction = 'ingress'
+
         remote_cidr = ''
         remote_sg_uuid = ''
-        saddr = sg_rule.get_src_addresses()[0]
-        daddr = sg_rule.get_dst_addresses()[0]
-        if saddr.get_security_group() == 'local':
-            direction = 'egress'
-            addr = daddr
-        elif daddr.get_security_group() == 'local':
-            direction = 'ingress'
-            addr = saddr
+        if direction == 'ingress':
+            addr = sg_rule.get_src_addresses()[0]
         else:
-            raise exceptions.NetworkNotFound(net_id=saddr.get_security_group())
+            addr = sg_rule.get_dst_addresses()[0]
 
         if addr.get_subnet():
             remote_cidr = '%s/%s' % (addr.get_subnet().get_ip_prefix(),
@@ -1009,7 +1007,7 @@ class DBInterface(object):
                 endpt = [AddressType(security_group=sg_obj.get_fq_name_str())]
 
             if sgr_q['direction'] == 'ingress':
-                dir = '>'
+                dir = '<'
                 local = endpt
                 remote = [AddressType(security_group='local')]
             else:
