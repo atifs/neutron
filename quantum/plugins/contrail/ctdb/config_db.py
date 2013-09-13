@@ -535,8 +535,7 @@ class DBInterface(object):
     def _project_list_domain(self, domain_id):
         # TODO till domain concept is not present in keystone
         fq_name = ['default-domain']
-        resp_str = self._vnc_lib.projects_list(parent_fq_name=fq_name)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.projects_list(parent_fq_name=fq_name)
 
         return resp_dict['projects']
     #end _project_list_domain
@@ -548,8 +547,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.virtual_networks_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.virtual_networks_list(parent_id=project_uuid)
 
         return resp_dict['virtual-networks']
     #end _network_list_project
@@ -560,8 +558,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.network_ipams_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.network_ipams_list(parent_id=project_uuid)
 
         return resp_dict['network-ipams']
     #end _ipam_list_project
@@ -572,8 +569,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.security_groups_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.security_groups_list(parent_id=project_uuid)
 
         return resp_dict['security-groups']
     #end _security_group_list_project
@@ -584,8 +580,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting SG uuid %s" % (sg_id)
 
-        resp_str = self._vnc_lib.security_groups_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.security_groups_list(parent_id=project_uuid)
 
         return resp_dict['security-groups']
     #end _security_group_entries_list_sg
@@ -596,8 +591,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.route_tables_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.route_tables_list(parent_id=project_uuid)
 
         return resp_dict['route-tables']
     #end _route_table_list_project
@@ -608,8 +602,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.service_instances_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.service_instances_list(parent_id=project_uuid)
 
         return resp_dict['service-instances']
     #end _route_table_list_project
@@ -620,8 +613,7 @@ class DBInterface(object):
         except Exception:
             print "Error in converting uuid %s" % (project_id)
 
-        resp_str = self._vnc_lib.network_policys_list(parent_id=project_uuid)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.network_policys_list(parent_id=project_uuid)
 
         return resp_dict['network-policys']
     #end _policy_list_project
@@ -655,8 +647,7 @@ class DBInterface(object):
 
     # find floating ip pools defined by network
     def _fip_pool_list_network(self, net_id):
-        resp_str = self._vnc_lib.floating_ip_pools_list(parent_id=net_id)
-        resp_dict = json.loads(resp_str)
+        resp_dict = self._vnc_lib.floating_ip_pools_list(parent_id=net_id)
 
         return resp_dict['floating-ip-pools']
     #end _fip_pool_list_network
@@ -2142,9 +2133,8 @@ class DBInterface(object):
         # Listing from parent to children
         virtual_machine_ids = filters['device_id']
         for vm_id in virtual_machine_ids:
-            resp_str = self._vnc_lib.virtual_machine_interfaces_list(
+            resp_dict = self._vnc_lib.virtual_machine_interfaces_list(
                 parent_id=vm_id)
-            resp_dict = json.loads(resp_str)
             vm_intf_ids = resp_dict['virtual-machine-interfaces']
             for vm_intf in vm_intf_ids:
                 try:
