@@ -176,6 +176,7 @@ setuptools.setup(
     install_requires=requires,
     dependency_links=depend_links,
     include_package_data=True,
+    setup_requires=['setuptools_git>=0.4'],
     packages=setuptools.find_packages('.'),
     cmdclass=setup.get_cmdclass(),
     data_files=DataFiles,
