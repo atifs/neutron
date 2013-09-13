@@ -2050,16 +2050,12 @@ class DBInterface(object):
                 # if name contains IP address then this is shared ip
                 iip_obj = self._vnc_lib.instance_ip_read(
                     id=iip_back_ref['uuid'])
-                name = iip_obj.name
-                if len(name.split(' ')) > 1:
-                    name = name.split(' ')[1]
 
                 # in case of shared ip only delete the link to the VMI
-                try:
-                    socket.inet_aton(name)
+                if len(iip_obj.name.split(' ')) > 1:
                     iip_obj.del_virtual_machine_interface(port_obj)
                     self._instance_ip_update(iip_obj)
-                except socket.error:
+                else:
                     self._instance_ip_delete(
                         instance_ip_id=iip_back_ref['uuid'])
 
