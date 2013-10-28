@@ -822,8 +822,7 @@ class DBInterface(object):
             scale_out = ServiceScaleOutType(max_instances=1, auto_scale=False)
             si_prop = ServiceInstanceType(
                       auto_policy=True,
-                      left_virtual_network=int_vn.name,
-                      right_virtual_network=ext_vn.name,
+                      right_virtual_network=ext_vn.get_fq_name_str(),
                       scale_out=scale_out)
             si_prop.set_scale_out(scale_out)
             si_vnc = ServiceInstance(name=si_q['name'],
@@ -843,16 +842,12 @@ class DBInterface(object):
         si_q_dict['name'] = si_obj.name
         si_props = si_obj.get_service_instance_properties()
         if si_props:
-            vn_fq_name = si_obj.get_parent_fq_name()
-            vn_name = si_props.get_left_virtual_network()
-            vn_fq_name.extend([vn_name])
-            vn_obj = self._vnc_lib.virtual_network_read(fq_name=vn_fq_name)
-            si_q_dict['internal_net'] = str(vn_obj.uuid) + ' ' + vn_name
-            vn_fq_name = si_obj.get_parent_fq_name()
-            vn_name = si_props.get_right_virtual_network()
-            vn_fq_name.extend([vn_name])
-            vn_obj = self._vnc_lib.virtual_network_read(fq_name=vn_fq_name)
-            si_q_dict['external_net'] = str(vn_obj.uuid) + ' ' + vn_name
+            vn_fq_name = si_props.get_left_virtual_network()
+            vn_obj = self._vnc_lib.virtual_network_read(fq_name_str=vn_fq_name)
+            si_q_dict['internal_net'] = str(vn_obj.uuid) + ' ' + vn_obj.name
+            vn_fq_name = si_props.get_right_virtual_network()
+            vn_obj = self._vnc_lib.virtual_network_read(fq_name_str=vn_fq_name)
+            si_q_dict['external_net'] = str(vn_obj.uuid) + ' ' + vn_obj.name
 
         return {'q_api_data': si_q_dict,
                 'q_extra_data': {}}
@@ -864,9 +859,31 @@ class DBInterface(object):
             project_obj = self._project_read(proj_id=project_id)
             rt_vnc = RouteTable(name=rt_q['name'],
                                 parent_obj=project_obj)
+
+            for route in rt_q['routes']['route']:
+                try:
+                    vm_obj = self._vnc_lib.virtual_machine_read(id=route['next_hop'])
+                    si_list = vm_obj.get_service_instance_refs()
+                    if si_list:
+                        fq_name = si_list[0]['to']
+                        si_obj = self._vnc_lib.service_instance_read(fq_name=fq_name)
+                        route['next_hop'] = si_obj.get_fq_name_str()
+                except Exception as e:
+                    pass
             rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
         else:
             rt_vnc = self._vnc_lib.route_table_read(id=rt_q['id'])
+
+            for route in rt_q['routes']['route']:
+                try:
+                    vm_obj = self._vnc_lib.virtual_machine_read(id=route['next_hop'])
+                    si_list = vm_obj.get_service_instance_refs()
+                    if si_list:
+                        fq_name = si_list[0]['to']
+                        si_obj = self._vnc_lib.service_instance_read(fq_name=fq_name)
+                        route['next_hop'] = si_obj.get_fq_name_str()
+                except Exception as e:
+                    pass
             rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
 
         return rt_vnc
@@ -884,6 +901,10 @@ class DBInterface(object):
 
         # get route table routes
         rt_q_dict['routes'] = rt_q_dict.pop('routes', None)
+        for route in rt_q_dict['routes']['route']:
+            if route['next_hop_type']:
+                route['next_hop'] = route['next_hop_type']    
+
         return {'q_api_data': rt_q_dict,
                 'q_extra_data': {}}
     #end _route_table_vnc_to_quantum
@@ -922,17 +943,18 @@ class DBInterface(object):
         return sg_vnc
     #end _security_group_quantum_to_vnc
 
-    def _security_group_rule_vnc_to_quantum(self, sg_id, sg_rule):
+    def _security_group_rule_vnc_to_quantum(self, sg_id, sg_rule, sg_obj=None):
         sgr_q_dict = {}
         if sg_id == None:
             return {'q_api_data': sgr_q_dict,
                     'q_extra_data': {}}
 
-        try:
-            sg_obj = self._vnc_lib.security_group_read(id=sg_id)
-        except NoIdError:
-            # TODO add security group specific exception
-            raise exceptions.NetworkNotFound(net_id=sg_id)
+        if not sg_obj:
+            try:
+                sg_obj = self._vnc_lib.security_group_read(id=sg_id)
+            except NoIdError:
+                # TODO add security group specific exception
+                raise exceptions.NetworkNotFound(net_id=sg_id)
 
         remote_cidr = ''
         remote_sg_uuid = ''
@@ -2248,7 +2270,7 @@ class DBInterface(object):
         sg_obj, sg_rule = self._security_group_rule_find(sgr_id)
         if sg_obj and sg_rule:
             return self._security_group_rule_vnc_to_quantum(sg_obj.uuid,
-                                                            sg_rule)
+                                                            sg_rule, sg_obj)
 
         return {}
     #end security_group_rule_read
@@ -2259,9 +2281,10 @@ class DBInterface(object):
             return self._security_group_rule_delete(sg_obj, sg_rule)
     #end security_group_rule_delete
 
-    def security_group_rules_read(self, sg_id):
+    def security_group_rules_read(self, sg_id, sg_obj=None):
         try:
-            sg_obj = self._vnc_lib.security_group_read(id=sg_id)
+            if not sg_obj:
+                sg_obj = self._vnc_lib.security_group_read(id=sg_id)
             sgr_entries = sg_obj.get_security_group_entries()
             sg_rules = []
             if sgr_entries == None:
@@ -2269,7 +2292,7 @@ class DBInterface(object):
 
             for sg_rule in sgr_entries.get_policy_rule():
                 sg_info = self._security_group_rule_vnc_to_quantum(sg_obj.uuid,
-                                                                   sg_rule)
+                                                                   sg_rule, sg_obj)
                 sg_rules.append(sg_info)
         except NoIdError:
             # TODO add security group specific exception
