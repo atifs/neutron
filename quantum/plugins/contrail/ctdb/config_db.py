@@ -815,13 +815,12 @@ class DBInterface(object):
         if oper == CREATE:
             project_id = str(uuid.UUID(si_q['tenant_id']))
             project_obj = self._project_read(proj_id=project_id)
-            net_id = si_q['internal_net']
-            int_vn = self._vnc_lib.virtual_network_read(id=net_id)
             net_id = si_q['external_net']
             ext_vn = self._vnc_lib.virtual_network_read(id=net_id)
             scale_out = ServiceScaleOutType(max_instances=1, auto_scale=False)
             si_prop = ServiceInstanceType(
                       auto_policy=True,
+                      left_virtual_network="",
                       right_virtual_network=ext_vn.get_fq_name_str(),
                       scale_out=scale_out)
             si_prop.set_scale_out(scale_out)
@@ -842,12 +841,10 @@ class DBInterface(object):
         si_q_dict['name'] = si_obj.name
         si_props = si_obj.get_service_instance_properties()
         if si_props:
-            vn_fq_name = si_props.get_left_virtual_network()
-            vn_obj = self._vnc_lib.virtual_network_read(fq_name_str=vn_fq_name)
-            si_q_dict['internal_net'] = str(vn_obj.uuid) + ' ' + vn_obj.name
             vn_fq_name = si_props.get_right_virtual_network()
             vn_obj = self._vnc_lib.virtual_network_read(fq_name_str=vn_fq_name)
             si_q_dict['external_net'] = str(vn_obj.uuid) + ' ' + vn_obj.name
+            si_q_dict['internal_net'] = '' 
 
         return {'q_api_data': si_q_dict,
                 'q_extra_data': {}}
@@ -901,9 +898,10 @@ class DBInterface(object):
 
         # get route table routes
         rt_q_dict['routes'] = rt_q_dict.pop('routes', None)
-        for route in rt_q_dict['routes']['route']:
-            if route['next_hop_type']:
-                route['next_hop'] = route['next_hop_type']    
+        if rt_q_dict['routes']:
+            for route in rt_q_dict['routes']['route']:
+                if route['next_hop_type']:
+                    route['next_hop'] = route['next_hop_type']    
 
         return {'q_api_data': rt_q_dict,
                 'q_extra_data': {}}
