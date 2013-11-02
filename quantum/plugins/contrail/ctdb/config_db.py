@@ -138,9 +138,9 @@ class DBInterface(object):
             request.body, {'Content-type': request.environ['CONTENT_TYPE']})
     #end _relay_request
 
-    def _obj_to_json(self, obj):
-        return dict((k, v) for k, v in obj.__dict__.iteritems())
-    #end _obj_to_json
+    def _obj_to_dict(self, obj):
+        return self._vnc_lib.obj_to_dict(obj)
+    #end _obj_to_dict
 
     def _ensure_instance_exists(self, instance_id):
         instance_name = instance_id
@@ -390,7 +390,6 @@ class DBInterface(object):
     def _virtual_network_update(self, net_obj):
         self._vnc_lib.virtual_network_update(net_obj)
         # read back to get subnet gw allocated by api-server
-        net_obj = self._vnc_lib.virtual_network_read(id=net_obj.uuid)
         fq_name_str = json.dumps(net_obj.get_fq_name())
 
         self._db_cache['vnc_networks'][net_obj.uuid] = net_obj
@@ -832,8 +831,7 @@ class DBInterface(object):
     #end _svc_instance_quantum_to_vnc
 
     def _svc_instance_vnc_to_quantum(self, si_obj):
-        si_q_dict = json.loads(json.dumps(si_obj,
-                               default=self._obj_to_json))
+        si_q_dict = self._obj_to_dict(si_obj)
 
         # replace field names
         si_q_dict['id'] = si_obj.uuid
@@ -887,8 +885,7 @@ class DBInterface(object):
     #end _route_table_quantum_to_vnc
 
     def _route_table_vnc_to_quantum(self, rt_obj):
-        rt_q_dict = json.loads(json.dumps(rt_obj,
-                               default=self._obj_to_json))
+        rt_q_dict = self._obj_to_dict(rt_obj)
 
         # replace field names
         rt_q_dict['id'] = rt_obj.uuid
@@ -908,8 +905,7 @@ class DBInterface(object):
     #end _route_table_vnc_to_quantum
 
     def _security_group_vnc_to_quantum(self, sg_obj):
-        sg_q_dict = json.loads(json.dumps(sg_obj,
-                               default=self._obj_to_json))
+        sg_q_dict = self._obj_to_dict(sg_obj)
 
         # replace field names
         sg_q_dict['id'] = sg_obj.uuid
@@ -919,7 +915,7 @@ class DBInterface(object):
 
         # get security group rules
         sg_q_dict['rules'] = []
-        rule_list = self.security_group_rules_read(sg_obj.uuid)
+        rule_list = self.security_group_rules_read(sg_obj.uuid, sg_obj)
         if rule_list:
             for rule in rule_list:
                 sg_q_dict['rules'].append(rule['q_api_data'])
@@ -1241,11 +1237,11 @@ class DBInterface(object):
     #end _ipam_quantum_to_vnc
 
     def _ipam_vnc_to_quantum(self, ipam_obj):
-        ipam_q_dict = json.loads(json.dumps(ipam_obj,
-                                            default=self._obj_to_json))
+        ipam_q_dict = self._obj_to_dict(ipam_obj)
 
         # replace field names
         ipam_q_dict['id'] = ipam_q_dict.pop('uuid')
+        ipam_q_dict['name'] = ipam_obj.name
         ipam_q_dict['tenant_id'] = ipam_obj.parent_uuid.replace('-', '')
         ipam_q_dict['mgmt'] = ipam_q_dict.pop('network_ipam_mgmt', None)
         net_back_refs = ipam_q_dict.pop('virtual_network_back_refs', None)
@@ -1275,11 +1271,11 @@ class DBInterface(object):
     #end _policy_quantum_to_vnc
 
     def _policy_vnc_to_quantum(self, policy_obj):
-        policy_q_dict = json.loads(json.dumps(policy_obj,
-                                              default=self._obj_to_json))
+        policy_q_dict = self._obj_to_dict(policy_obj)
 
         # replace field names
         policy_q_dict['id'] = policy_q_dict.pop('uuid')
+        policy_q_dict['name'] = policy_obj.name
         policy_q_dict['tenant_id'] = policy_obj.parent_uuid.replace('-', '')
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries',
                                                      None)
@@ -2283,6 +2279,7 @@ class DBInterface(object):
         try:
             if not sg_obj:
                 sg_obj = self._vnc_lib.security_group_read(id=sg_id)
+
             sgr_entries = sg_obj.get_security_group_entries()
             sg_rules = []
             if sgr_entries == None:
@@ -2290,7 +2287,8 @@ class DBInterface(object):
 
             for sg_rule in sgr_entries.get_policy_rule():
                 sg_info = self._security_group_rule_vnc_to_quantum(sg_obj.uuid,
-                                                                   sg_rule, sg_obj)
+                                                                   sg_rule,
+                                                                   sg_obj)
                 sg_rules.append(sg_info)
         except NoIdError:
             # TODO add security group specific exception
