@@ -1279,7 +1279,7 @@ class DBInterface(object):
         policy_q_dict['tenant_id'] = policy_obj.parent_uuid.replace('-', '')
         policy_q_dict['entries'] = policy_q_dict.pop('network_policy_entries',
                                                      None)
-        net_back_refs = policy_q_dict.pop('virtual_network_back_refs', None)
+        net_back_refs = policy_obj.get_virtual_network_back_refs()
         if net_back_refs:
             policy_q_dict['nets_using'] = []
             for net_back_ref in net_back_refs:
