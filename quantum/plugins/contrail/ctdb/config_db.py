@@ -70,6 +70,8 @@ class DBInterface(object):
                 connected = True
             except requests.exceptions.RequestException as e:
                 time.sleep(3)
+            except ResourceExhaustionError: # haproxy throws 503
+                time.sleep(3)
 
         # TODO remove this backward compat code eventually
         # changes 'net_fq_name_str pfx/len' key to 'net_id pfx/len' key
