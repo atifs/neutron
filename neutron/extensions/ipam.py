@@ -1,10 +1,10 @@
 from abc import abstractmethod
 
-from quantum.api.v2 import attributes as attr
-from quantum.api.v2 import base
-from quantum.common import exceptions as qexception
-from quantum.api import extensions
-from quantum import manager
+from neutron.api.v2 import attributes as attr
+from neutron.api.v2 import base
+from neutron.common import exceptions as qexception
+from neutron.api import extensions
+from neutron import manager
 from oslo.config import cfg
 
 
@@ -89,7 +89,7 @@ class Ipam(object):
     def get_resources(cls):
         """ Returns Ext Resources """
         exts = []
-        plugin = manager.QuantumManager.get_plugin()
+        plugin = manager.NeutronManager.get_plugin()
         for resource_name in ['ipam']:
             collection_name = resource_name + "s"
             params = RESOURCE_ATTRIBUTE_MAP.get(collection_name, dict())

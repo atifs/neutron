@@ -20,13 +20,13 @@ from abc import abstractmethod
 
 from oslo.config import cfg
 
-from quantum.api import extensions
-from quantum.api.v2 import attributes as attr
-from quantum.api.v2 import base
-from quantum.common import exceptions as qexception
-from quantum import manager
-from quantum.openstack.common import uuidutils
-from quantum import quota
+from neutron.api import extensions
+from neutron.api.v2 import attributes as attr
+from neutron.api.v2 import base
+from neutron.common import exceptions as qexception
+from neutron import manager
+from neutron.openstack.common import uuidutils
+from neutron import quota
 
 
 # Route table Exceptions
@@ -117,7 +117,7 @@ class Vpcroutetable(extensions.ExtensionDescriptor):
         my_plurals = [(key, key[:-1]) for key in RESOURCE_ATTRIBUTE_MAP.keys()]
         attr.PLURALS.update(dict(my_plurals))
         exts = []
-        plugin = manager.QuantumManager.get_plugin()
+        plugin = manager.NeutronManager.get_plugin()
         for resource_name in ['route_table', 'nat_instance']:
             collection_name = resource_name.replace('_', '-') + "s"
             params = RESOURCE_ATTRIBUTE_MAP.get(resource_name + "s", dict())
