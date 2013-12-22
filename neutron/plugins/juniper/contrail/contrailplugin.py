@@ -11,10 +11,13 @@ import logging
 import ConfigParser
 from pprint import pformat
 
-from quantum.manager import QuantumManager
-from quantum.common import exceptions as exc
-from quantum.db import db_base_plugin_v2
-from quantum.extensions import l3, securitygroup, vpcroutetable
+from neutron.manager import NeutronManager
+from neutron.common import exceptions as exc
+from neutron.db import db_base_plugin_v2
+from neutron.db import portbindings_base
+from neutron.extensions import l3, securitygroup, vpcroutetable
+from neutron.extensions import portbindings
+from neutron.openstack.common import log as logging
 
 from oslo.config import cfg
 from httplib2 import Http
@@ -58,16 +61,18 @@ def _read_cfg_boolean(cfg_parser, section, option, default):
 
 
 #TODO define ABC PluginBase for ipam and policy and derive mixin from them
-class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
+class ContrailPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                      l3.RouterPluginBase,
                      securitygroup.SecurityGroupPluginBase,
-                     vpcroutetable.RouteTablePluginBase):
+                     # vpcroutetable.RouteTablePluginBase,
+                     portbindings_base.PortBindingBaseMixin):
     """
     .. attention::  TODO remove db. ref and replace ctdb. with db.
     """
 
     supported_extension_aliases = ["ipam", "policy", "security-group",
-                                   "router", "route-table", "port-security"]
+                                   "router", "route-table", "port-security",
+                                   "binding",]
     _cfgdb = None
     _args = None
     _tenant_id_dict = {}
@@ -75,7 +80,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
     @classmethod
     def _parse_class_args(cls, cfg_parser):
-        cfg_parser.read("/etc/quantum/plugins/contrail/contrail_plugin.ini")
+        cfg_parser.read("/etc/neutron/plugins/juniper/contrail/ContrailPlugin.ini")
         cls._multi_tenancy = _read_cfg_boolean(cfg_parser, 'APISERVER',
                                                'multi_tenancy', False)
         cls._admin_token = _read_cfg(cfg_parser, 'KEYSTONE', 'admin_token', '')
@@ -156,6 +161,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             cls._tenant_name_dict[tenant['name']] = tenant['id']
     #end _tenant_list_from_keystone
 
+    def update_security_group(self, context, id, security_group):
+        pass
+
     def __init__(self):
         cfg.CONF.register_opts(vnc_opts, 'APISERVER')
 
@@ -166,7 +174,17 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
         self._cfgdb = ContrailPlugin._cfgdb
 
         ContrailPlugin._tenant_list_from_keystone()
+        self.base_binding_dict = self._get_base_binding_dict()
+        portbindings_base.register_port_dict_function()
     #end __init__
+
+    def _get_base_binding_dict(self):
+        binding = {
+            portbindings.VIF_TYPE: portbindings.VIF_TYPE_VROUTER,
+            portbindings.CAPABILITIES: {
+                portbindings.CAP_PORT_FILTER:
+                'security-group' in self.supported_extension_aliases}}
+        return binding
 
     @classmethod
     def tenant_id_to_name(cls, id):
@@ -375,7 +393,7 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
     def get_subnets(self, context, filters=None, fields=None):
         """
-        Called from Quantum API -> get_<resource>
+        Called from neutron API -> get_<resource>
         """
         try:
             cfgdb = ContrailPlugin._get_user_cfgdb(context)
@@ -740,6 +758,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'])
+            self._process_portbindings_create_and_update(context,
+                                                     port['port'],
+                                                     port_dict)
 
             port_dict.update(port_info['q_extra_data'])
 
@@ -757,6 +778,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'], fields)
+            self._process_portbindings_create_and_update(context,
+                                                     port_info,
+                                                     port_dict)
 
             port_dict.update(port_info['q_extra_data'])
 
@@ -777,6 +801,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
 
             # verify transformation is conforming to api
             port_dict = self._make_port_dict(port_info['q_api_data'])
+            self._process_portbindings_create_and_update(context,
+                                                     port['port'],
+                                                     port_info)
 
             port_dict.update(port_info['q_extra_data'])
 
@@ -816,6 +843,9 @@ class ContrailPlugin(db_base_plugin_v2.QuantumDbPluginV2,
             for p_info in ports_info:
                 # verify transformation is conforming to api
                 p_dict = self._make_port_dict(p_info['q_api_data'], fields)
+                self._process_portbindings_create_and_update(context,
+                                                         p_info,
+                                                         p_dict)
 
                 p_dict.update(p_info['q_extra_data'])
                 ports_dicts.append(p_dict)

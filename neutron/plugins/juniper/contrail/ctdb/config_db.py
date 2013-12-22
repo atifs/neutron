@@ -14,9 +14,13 @@ import time
 import socket
 from netaddr import IPNetwork, IPSet, IPAddress
 
-from quantum.common import constants
-from quantum.common import exceptions
-from quantum.api.v2 import attributes as attr
+from neutron.common import constants
+from neutron.common import exceptions
+from neutron.api.v2 import attributes as attr
+from neutron.extensions import portbindings
+from neutron.openstack.common import log as logging
+
+from cfgm_common import exceptions as vnc_exc
 from vnc_api.vnc_api import *
 
 _DEFAULT_HEADERS = {
@@ -69,8 +73,6 @@ class DBInterface(object):
                                        api_srvr_port, '/', user_info=user_info)
                 connected = True
             except requests.exceptions.RequestException as e:
-                time.sleep(3)
-            except ResourceExhaustionError: # haproxy throws 503
                 time.sleep(3)
 
         # TODO remove this backward compat code eventually
@@ -130,7 +132,7 @@ class DBInterface(object):
         """
         Send received request to api server
         """
-        # chop quantum parts of url and add api server address
+        # chop neutron parts of url and add api server address
         url_path = re.sub(self.Q_URL_PREFIX, '', request.environ['PATH_INFO'])
         url = "http://%s:%s%s" % (self._api_srvr_ip, self._api_srvr_port,
                                   url_path)
@@ -187,7 +189,7 @@ class DBInterface(object):
         def_rule['remote_ip_prefix'] = '0.0.0.0/0'
         def_rule['remote_group_id'] = None
         def_rule['protocol'] = 'any'
-        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
+        rule = self._security_group_rule_neutron_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
 
         #allow ingress traffic from within default security group
@@ -198,7 +200,7 @@ class DBInterface(object):
         def_rule['remote_ip_prefix'] = '0.0.0.0/0'
         def_rule['remote_group_id'] = None
         def_rule['protocol'] = 'any'
-        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
+        rule = self._security_group_rule_neutron_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_obj.uuid, rule)
     #end _ensure_default_security_group_exists
 
@@ -262,7 +264,7 @@ class DBInterface(object):
         if proj_id:
             try:
                 # disable cache for now as fip pool might be put without
-                # quantum knowing it
+                # neutron knowing it
                 raise KeyError
                 #return self._db_cache['vnc_projects'][proj_id]
             except KeyError:
@@ -276,7 +278,7 @@ class DBInterface(object):
             fq_name_str = json.dumps(fq_name)
             try:
                 # disable cache for now as fip pool might be put without
-                # quantum knowing it
+                # neutron knowing it
                 raise KeyError
                 #return self._db_cache['vnc_projects'][fq_name_str]
             except KeyError:
@@ -744,8 +746,8 @@ class DBInterface(object):
         if id:
             return self._subnet_vnc_read_mapping(id=id)
 
-        # if subnet was created outside of quantum handle it and create
-        # quantum representation now (lazily)
+        # if subnet was created outside of neutron handle it and create
+        # neutron representation now (lazily)
         try:
             return self._subnet_vnc_read_mapping(key=key)
         except NoIdError:
@@ -812,7 +814,7 @@ class DBInterface(object):
     #end _ip_address_to_subnet_id
 
     # Conversion routines between VNC and Quantum objects
-    def _svc_instance_quantum_to_vnc(self, si_q, oper):
+    def _svc_instance_neutron_to_vnc(self, si_q, oper):
         if oper == CREATE:
             project_id = str(uuid.UUID(si_q['tenant_id']))
             project_obj = self._project_read(proj_id=project_id)
@@ -830,9 +832,9 @@ class DBInterface(object):
                          service_instance_properties=si_prop)
 
         return si_vnc
-    #end _svc_instance_quantum_to_vnc
+    #end _svc_instance_neutron_to_vnc
 
-    def _svc_instance_vnc_to_quantum(self, si_obj):
+    def _svc_instance_vnc_to_neutron(self, si_obj):
         si_q_dict = self._obj_to_dict(si_obj)
 
         # replace field names
@@ -848,9 +850,9 @@ class DBInterface(object):
 
         return {'q_api_data': si_q_dict,
                 'q_extra_data': {}}
-    #end _route_table_vnc_to_quantum
+    #end _route_table_vnc_to_neutron
 
-    def _route_table_quantum_to_vnc(self, rt_q, oper):
+    def _route_table_neutron_to_vnc(self, rt_q, oper):
         if oper == CREATE:
             project_id = str(uuid.UUID(rt_q['tenant_id']))
             project_obj = self._project_read(proj_id=project_id)
@@ -884,9 +886,9 @@ class DBInterface(object):
             rt_vnc.set_routes(RouteTableType.factory(**rt_q['routes']))
 
         return rt_vnc
-    #end _route_table_quantum_to_vnc
+    #end _route_table_neutron_to_vnc
 
-    def _route_table_vnc_to_quantum(self, rt_obj):
+    def _route_table_vnc_to_neutron(self, rt_obj):
         rt_q_dict = self._obj_to_dict(rt_obj)
 
         # replace field names
@@ -904,9 +906,9 @@ class DBInterface(object):
 
         return {'q_api_data': rt_q_dict,
                 'q_extra_data': {}}
-    #end _route_table_vnc_to_quantum
+    #end _route_table_vnc_to_neutron
 
-    def _security_group_vnc_to_quantum(self, sg_obj):
+    def _security_group_vnc_to_neutron(self, sg_obj):
         sg_q_dict = self._obj_to_dict(sg_obj)
 
         # replace field names
@@ -924,9 +926,9 @@ class DBInterface(object):
 
         return {'q_api_data': sg_q_dict,
                 'q_extra_data': {}}
-    #end _security_group_vnc_to_quantum
+    #end _security_group_vnc_to_neutron
 
-    def _security_group_quantum_to_vnc(self, sg_q, oper):
+    def _security_group_neutron_to_vnc(self, sg_q, oper):
         if oper == CREATE:
             project_id = str(uuid.UUID(sg_q['tenant_id']))
             project_obj = self._project_read(proj_id=project_id)
@@ -937,9 +939,9 @@ class DBInterface(object):
                                    id_perms=id_perms)
 
         return sg_vnc
-    #end _security_group_quantum_to_vnc
+    #end _security_group_neutron_to_vnc
 
-    def _security_group_rule_vnc_to_quantum(self, sg_id, sg_rule, sg_obj=None):
+    def _security_group_rule_vnc_to_neutron(self, sg_id, sg_rule, sg_obj=None):
         sgr_q_dict = {}
         if sg_id == None:
             return {'q_api_data': sgr_q_dict,
@@ -993,9 +995,9 @@ class DBInterface(object):
 
         return {'q_api_data': sgr_q_dict,
                 'q_extra_data': {}}
-    #end _security_group_rule_vnc_to_quantum
+    #end _security_group_rule_vnc_to_neutron
 
-    def _security_group_rule_quantum_to_vnc(self, sgr_q, oper):
+    def _security_group_rule_neutron_to_vnc(self, sgr_q, oper):
         if oper == CREATE:
             port_min = 0
             port_max = 65535
@@ -1036,9 +1038,9 @@ class DBInterface(object):
                                   dst_addresses=remote,
                                   dst_ports=[PortType(port_min, port_max)])
             return rule
-    #end _security_group_rule_quantum_to_vnc
+    #end _security_group_rule_neutron_to_vnc
 
-    def _network_quantum_to_vnc(self, network_q, oper):
+    def _network_neutron_to_vnc(self, network_q, oper):
         net_name = network_q.get('name', None)
         if oper == CREATE:
             project_id = str(uuid.UUID(network_q['tenant_id']))
@@ -1081,9 +1083,9 @@ class DBInterface(object):
                     raise exceptions.NetworkNotFound(net_id=net_obj.uuid)
 
         return net_obj
-    #end _network_quantum_to_vnc
+    #end _network_neutron_to_vnc
 
-    def _network_vnc_to_quantum(self, net_obj, net_repr='SHOW'):
+    def _network_vnc_to_neutron(self, net_obj, net_repr='SHOW'):
         net_q_dict = {}
         extra_dict = {}
 
@@ -1107,7 +1109,7 @@ class DBInterface(object):
             #        except NoIdError:
             #            continue
             #
-            #        port_info = self._port_vnc_to_quantum(port_obj, net_obj)
+            #        port_info = self._port_vnc_to_neutron(port_obj, net_obj)
             #        port_dict = port_info['q_api_data']
             #        port_dict.update(port_info['q_extra_data'])
             #
@@ -1140,7 +1142,7 @@ class DBInterface(object):
             for ipam_ref in ipam_refs:
                 subnets = ipam_ref['attr'].get_ipam_subnets()
                 for subnet in subnets:
-                    sn_info = self._subnet_vnc_to_quantum(subnet, net_obj,
+                    sn_info = self._subnet_vnc_to_neutron(subnet, net_obj,
                                                           ipam_ref['to'])
                     sn_dict = sn_info['q_api_data']
                     sn_dict.update(sn_info['q_extra_data'])
@@ -1152,9 +1154,9 @@ class DBInterface(object):
 
         return {'q_api_data': net_q_dict,
                 'q_extra_data': extra_dict}
-    #end _network_vnc_to_quantum
+    #end _network_vnc_to_neutron
 
-    def _subnet_quantum_to_vnc(self, subnet_q):
+    def _subnet_neutron_to_vnc(self, subnet_q):
         cidr = subnet_q['cidr'].split('/')
         pfx = cidr[0]
         pfx_len = int(cidr[1])
@@ -1167,9 +1169,9 @@ class DBInterface(object):
                                     default_gateway=default_gw)
 
         return subnet_vnc
-    #end _subnet_quantum_to_vnc
+    #end _subnet_neutron_to_vnc
 
-    def _subnet_vnc_to_quantum(self, subnet_vnc, net_obj, ipam_fq_name):
+    def _subnet_vnc_to_neutron(self, subnet_vnc, net_obj, ipam_fq_name):
         sn_q_dict = {}
         sn_q_dict['name'] = ''
         sn_q_dict['tenant_id'] = net_obj.parent_uuid.replace('-', '')
@@ -1214,9 +1216,9 @@ class DBInterface(object):
 
         return {'q_api_data': sn_q_dict,
                 'q_extra_data': extra_dict}
-    #end _subnet_vnc_to_quantum
+    #end _subnet_vnc_to_neutron
 
-    def _ipam_quantum_to_vnc(self, ipam_q, oper):
+    def _ipam_neutron_to_vnc(self, ipam_q, oper):
         ipam_name = ipam_q.get('name', None)
         if oper == CREATE:
             project_id = str(uuid.UUID(ipam_q['tenant_id']))
@@ -1236,9 +1238,9 @@ class DBInterface(object):
             ipam_obj.set_network_ipam_mgmt(IpamType.factory(**ipam_q['mgmt']))
 
         return ipam_obj
-    #end _ipam_quantum_to_vnc
+    #end _ipam_neutron_to_vnc
 
-    def _ipam_vnc_to_quantum(self, ipam_obj):
+    def _ipam_vnc_to_neutron(self, ipam_obj):
         ipam_q_dict = self._obj_to_dict(ipam_obj)
 
         # replace field names
@@ -1255,9 +1257,9 @@ class DBInterface(object):
 
         return {'q_api_data': ipam_q_dict,
                 'q_extra_data': {}}
-    #end _ipam_vnc_to_quantum
+    #end _ipam_vnc_to_neutron
 
-    def _policy_quantum_to_vnc(self, policy_q, oper):
+    def _policy_neutron_to_vnc(self, policy_q, oper):
         policy_name = policy_q.get('name', None)
         if oper == CREATE:
             project_id = str(uuid.UUID(policy_q['tenant_id']))
@@ -1270,9 +1272,9 @@ class DBInterface(object):
             PolicyEntriesType.factory(**policy_q['entries']))
 
         return policy_obj
-    #end _policy_quantum_to_vnc
+    #end _policy_neutron_to_vnc
 
-    def _policy_vnc_to_quantum(self, policy_obj):
+    def _policy_vnc_to_neutron(self, policy_obj):
         policy_q_dict = self._obj_to_dict(policy_obj)
 
         # replace field names
@@ -1290,9 +1292,9 @@ class DBInterface(object):
 
         return {'q_api_data': policy_q_dict,
                 'q_extra_data': {}}
-    #end _policy_vnc_to_quantum
+    #end _policy_vnc_to_neutron
 
-    def _floatingip_quantum_to_vnc(self, fip_q, oper):
+    def _floatingip_neutron_to_vnc(self, fip_q, oper):
         if oper == CREATE:
             # TODO for now create from default pool, later
             # use first available pool on net
@@ -1317,9 +1319,9 @@ class DBInterface(object):
             fip_obj.set_virtual_machine_interface_list([])
 
         return fip_obj
-    #end _floatingip_quantum_to_vnc
+    #end _floatingip_neutron_to_vnc
 
-    def _floatingip_vnc_to_quantum(self, fip_obj):
+    def _floatingip_vnc_to_neutron(self, fip_obj):
         fip_q_dict = {}
         extra_dict = {}
 
@@ -1344,9 +1346,9 @@ class DBInterface(object):
 
         return {'q_api_data': fip_q_dict,
                 'q_extra_data': extra_dict}
-    #end _floatingip_vnc_to_quantum
+    #end _floatingip_vnc_to_neutron
 
-    def _port_quantum_to_vnc(self, port_q, net_obj, oper):
+    def _port_neutron_to_vnc(self, port_q, net_obj, oper):
         if oper == CREATE:
             port_name = str(uuid.uuid4())
             instance_name = port_q['device_id']
@@ -1374,12 +1376,13 @@ class DBInterface(object):
             port_obj.set_id_perms(id_perms)
 
         return port_obj
-    #end _port_quantum_to_vnc
+    #end _port_neutron_to_vnc
 
-    def _port_vnc_to_quantum(self, port_obj, net_obj=None):
+    def _port_vnc_to_neutron(self, port_obj, net_obj=None):
         port_q_dict = {}
         port_q_dict['name'] = port_obj.uuid
         port_q_dict['id'] = port_obj.uuid
+        port_q_dict[portbindings.VIF_TYPE] = portbindings.VIF_TYPE_VROUTER
 
         if not net_obj:
             net_refs = port_obj.get_virtual_network_refs()
@@ -1387,7 +1390,7 @@ class DBInterface(object):
                 net_id = net_refs[0]['uuid']
             else:
                 # TODO hack to force network_id on default port
-                # as quantum needs it
+                # as neutron needs it
                 net_id = self._vnc_lib.obj_to_id(VirtualNetwork())
 
             #proj_id = self._get_obj_tenant_id('port', port_obj.uuid)
@@ -1444,17 +1447,17 @@ class DBInterface(object):
 
         return {'q_api_data': port_q_dict,
                 'q_extra_data': sg_dict}
-    #end _port_vnc_to_quantum
+    #end _port_vnc_to_neutron
 
     # public methods
     # network api handlers
     def network_create(self, network_q):
         #self._ensure_project_exists(network_q['tenant_id'])
 
-        net_obj = self._network_quantum_to_vnc(network_q, CREATE)
+        net_obj = self._network_neutron_to_vnc(network_q, CREATE)
         net_uuid = self._virtual_network_create(net_obj)
 
-        ret_network_q = self._network_vnc_to_quantum(net_obj, net_repr='SHOW')
+        ret_network_q = self._network_vnc_to_neutron(net_obj, net_repr='SHOW')
         self._db_cache['q_networks'][net_uuid] = ret_network_q
 
         return ret_network_q
@@ -1477,15 +1480,15 @@ class DBInterface(object):
         except NoIdError:
             raise exceptions.NetworkNotFound(net_id=net_uuid)
 
-        return self._network_vnc_to_quantum(net_obj, net_repr='SHOW')
+        return self._network_vnc_to_neutron(net_obj, net_repr='SHOW')
     #end network_read
 
     def network_update(self, net_id, network_q):
         network_q['id'] = net_id
-        net_obj = self._network_quantum_to_vnc(network_q, UPDATE)
+        net_obj = self._network_neutron_to_vnc(network_q, UPDATE)
         self._virtual_network_update(net_obj)
 
-        ret_network_q = self._network_vnc_to_quantum(net_obj, net_repr='SHOW')
+        ret_network_q = self._network_vnc_to_neutron(net_obj, net_repr='SHOW')
         self._db_cache['q_networks'][net_id] = ret_network_q
 
         return ret_network_q
@@ -1518,7 +1521,7 @@ class DBInterface(object):
                 # prune is skipped because all_nets is empty
                 for net_id in filters['id']:
                     net_obj = self._network_read(net_id)
-                    net_info = self._network_vnc_to_quantum(net_obj,
+                    net_info = self._network_vnc_to_neutron(net_obj,
                                                             net_repr='LIST')
                     ret_list.append(net_info)
             else:
@@ -1535,7 +1538,7 @@ class DBInterface(object):
             # prune is skipped because all_nets is empty
             for net_id in filters['id']:
                 net_obj = self._network_read(net_id)
-                net_info = self._network_vnc_to_quantum(net_obj,
+                net_info = self._network_vnc_to_neutron(net_obj,
                                                         net_repr='LIST')
                 ret_list.append(net_info)
         else:
@@ -1563,7 +1566,7 @@ class DBInterface(object):
 
                 try:
                     net_obj = self._network_read(proj_net['uuid'])
-                    net_info = self._network_vnc_to_quantum(net_obj,
+                    net_info = self._network_vnc_to_neutron(net_obj,
                                                             net_repr='LIST')
                 except NoIdError:
                     continue
@@ -1594,7 +1597,7 @@ class DBInterface(object):
             netipam_obj = NetworkIpam(project_obj=project_obj)
             ipam_fq_name = netipam_obj.get_fq_name()
 
-        subnet_vnc = self._subnet_quantum_to_vnc(subnet_q)
+        subnet_vnc = self._subnet_neutron_to_vnc(subnet_q)
         subnet_key = self._subnet_vnc_get_key(subnet_vnc, net_id)
 
         # Locate list of subnets to which this subnet has to be appended
@@ -1614,7 +1617,7 @@ class DBInterface(object):
             for subnet in net_ipam_ref['attr'].get_ipam_subnets():
                 if subnet_key == self._subnet_vnc_get_key(subnet, net_id):
                     # duplicate !!
-                    subnet_info = self._subnet_vnc_to_quantum(subnet,
+                    subnet_info = self._subnet_vnc_to_neutron(subnet,
                                                               net_obj,
                                                               ipam_fq_name)
                     return subnet_info
@@ -1630,7 +1633,7 @@ class DBInterface(object):
 
         # Read in subnet from server to get updated values for gw etc.
         subnet_vnc = self._subnet_read(net_obj.uuid, subnet_key)
-        subnet_info = self._subnet_vnc_to_quantum(subnet_vnc, net_obj,
+        subnet_info = self._subnet_vnc_to_neutron(subnet_vnc, net_obj,
                                                   ipam_fq_name)
 
         #self._db_cache['q_subnets'][subnet_id] = subnet_info
@@ -1656,7 +1659,7 @@ class DBInterface(object):
                 for subnet_vnc in subnet_vncs:
                     if self._subnet_vnc_get_key(subnet_vnc, net_id) == \
                         subnet_key:
-                        ret_subnet_q = self._subnet_vnc_to_quantum(
+                        ret_subnet_q = self._subnet_vnc_to_neutron(
                             subnet_vnc, net_obj, ipam_ref['to'])
                         self._db_cache['q_subnets'][subnet_id] = ret_subnet_q
                         return ret_subnet_q
@@ -1716,7 +1719,7 @@ class DBInterface(object):
                 for ipam_ref in ipam_refs:
                     subnet_vncs = ipam_ref['attr'].get_ipam_subnets()
                     for subnet_vnc in subnet_vncs:
-                        sn_info = self._subnet_vnc_to_quantum(subnet_vnc,
+                        sn_info = self._subnet_vnc_to_neutron(subnet_vnc,
                                                               net_obj,
                                                               ipam_ref['to'])
                         sn_id = sn_info['q_api_data']['id']
@@ -1752,10 +1755,10 @@ class DBInterface(object):
         # from keystone on startup
         #self._ensure_project_exists(ipam_q['tenant_id'])
 
-        ipam_obj = self._ipam_quantum_to_vnc(ipam_q, CREATE)
+        ipam_obj = self._ipam_neutron_to_vnc(ipam_q, CREATE)
         ipam_uuid = self._vnc_lib.network_ipam_create(ipam_obj)
 
-        return self._ipam_vnc_to_quantum(ipam_obj)
+        return self._ipam_vnc_to_neutron(ipam_obj)
     #end ipam_create
 
     def ipam_read(self, ipam_id):
@@ -1765,16 +1768,16 @@ class DBInterface(object):
             # TODO add ipam specific exception
             raise exceptions.NetworkNotFound(net_id=ipam_id)
 
-        return self._ipam_vnc_to_quantum(ipam_obj)
+        return self._ipam_vnc_to_neutron(ipam_obj)
     #end ipam_read
 
     def ipam_update(self, ipam_id, ipam):
         ipam_q = ipam['ipam']
         ipam_q['id'] = ipam_id
-        ipam_obj = self._ipam_quantum_to_vnc(ipam_q, UPDATE)
+        ipam_obj = self._ipam_neutron_to_vnc(ipam_q, UPDATE)
         self._vnc_lib.network_ipam_update(ipam_obj)
 
-        return self._ipam_vnc_to_quantum(ipam_obj)
+        return self._ipam_vnc_to_neutron(ipam_obj)
     #end ipam_update
 
     def ipam_delete(self, ipam_id):
@@ -1823,25 +1826,25 @@ class DBInterface(object):
         # from keystone on startup
         #self._ensure_project_exists(policy_q['tenant_id'])
 
-        policy_obj = self._policy_quantum_to_vnc(policy_q, CREATE)
+        policy_obj = self._policy_neutron_to_vnc(policy_q, CREATE)
         policy_uuid = self._vnc_lib.network_policy_create(policy_obj)
 
-        return self._policy_vnc_to_quantum(policy_obj)
+        return self._policy_vnc_to_neutron(policy_obj)
     #end policy_create
 
     def policy_read(self, policy_id):
         policy_obj = self._vnc_lib.network_policy_read(id=policy_id)
 
-        return self._policy_vnc_to_quantum(policy_obj)
+        return self._policy_vnc_to_neutron(policy_obj)
     #end policy_read
 
     def policy_update(self, policy_id, policy):
         policy_q = policy['policy']
         policy_q['id'] = policy_id
-        policy_obj = self._policy_quantum_to_vnc(policy_q, UPDATE)
+        policy_obj = self._policy_neutron_to_vnc(policy_q, UPDATE)
         self._vnc_lib.network_policy_update(policy_obj)
 
-        return self._policy_vnc_to_quantum(policy_obj)
+        return self._policy_vnc_to_neutron(policy_obj)
     #end policy_update
 
     def policy_delete(self, policy_id):
@@ -1886,25 +1889,25 @@ class DBInterface(object):
 
     # floatingip api handlers
     def floatingip_create(self, fip_q):
-        fip_obj = self._floatingip_quantum_to_vnc(fip_q, CREATE)
+        fip_obj = self._floatingip_neutron_to_vnc(fip_q, CREATE)
         fip_uuid = self._vnc_lib.floating_ip_create(fip_obj)
         fip_obj = self._vnc_lib.floating_ip_read(id=fip_uuid)
 
-        return self._floatingip_vnc_to_quantum(fip_obj)
+        return self._floatingip_vnc_to_neutron(fip_obj)
     #end floatingip_create
 
     def floatingip_read(self, fip_uuid):
         fip_obj = self._vnc_lib.floating_ip_read(id=fip_uuid)
 
-        return self._floatingip_vnc_to_quantum(fip_obj)
+        return self._floatingip_vnc_to_neutron(fip_obj)
     #end floatingip_read
 
     def floatingip_update(self, fip_id, fip_q):
         fip_q['id'] = fip_id
-        fip_obj = self._floatingip_quantum_to_vnc(fip_q, UPDATE)
+        fip_obj = self._floatingip_neutron_to_vnc(fip_q, UPDATE)
         self._vnc_lib.floating_ip_update(fip_obj)
 
-        return self._floatingip_vnc_to_quantum(fip_obj)
+        return self._floatingip_vnc_to_neutron(fip_obj)
     #end floatingip_update
 
     def floatingip_delete(self, fip_id):
@@ -1931,7 +1934,7 @@ class DBInterface(object):
                     for fip_back_ref in fip_back_refs:
                         fip_obj = self._vnc_lib.floating_ip_read(
                             id=fip_back_ref['uuid'])
-                        ret_list.append(self._floatingip_vnc_to_quantum(
+                        ret_list.append(self._floatingip_vnc_to_neutron(
                             fip_obj))
         else:  # no filters
             dom_projects = self._project_list_domain(None)
@@ -1947,7 +1950,7 @@ class DBInterface(object):
             for fip_back_ref in fip_back_refs:
                 fip_obj = self._vnc_lib.floating_ip_read(
                     id=fip_back_ref['uuid'])
-                ret_list.append(self._floatingip_vnc_to_quantum(fip_obj))
+                ret_list.append(self._floatingip_vnc_to_neutron(fip_obj))
 
         return ret_list
     #end floatingip_list
@@ -1967,7 +1970,7 @@ class DBInterface(object):
         self._ensure_instance_exists(port_q['device_id'])
 
         # initialize port object
-        port_obj = self._port_quantum_to_vnc(port_q, net_obj, CREATE)
+        port_obj = self._port_neutron_to_vnc(port_q, net_obj, CREATE)
 
         # if ip address passed then use it
         ip_addr = None
@@ -2014,7 +2017,7 @@ class DBInterface(object):
         # TODO below reads back default parent name, fix it
         port_obj = self._virtual_machine_interface_read(port_id=port_id)
 
-        ret_port_q = self._port_vnc_to_quantum(port_obj, net_obj)
+        ret_port_q = self._port_vnc_to_neutron(port_obj, net_obj)
         #self._db_cache['q_ports'][port_id] = ret_port_q
         self._set_obj_tenant_id(port_id, proj_id)
 
@@ -2040,7 +2043,7 @@ class DBInterface(object):
 
         port_obj = self._virtual_machine_interface_read(port_id=port_id)
 
-        ret_port_q = self._port_vnc_to_quantum(port_obj)
+        ret_port_q = self._port_vnc_to_neutron(port_obj)
         self._db_cache['q_ports'][port_id] = ret_port_q
 
         return ret_port_q
@@ -2048,17 +2051,17 @@ class DBInterface(object):
 
     def port_update(self, port_id, port_q):
         port_q['id'] = port_id
-        port_obj = self._port_quantum_to_vnc(port_q, None, UPDATE)
+        port_obj = self._port_neutron_to_vnc(port_q, None, UPDATE)
         self._virtual_machine_interface_update(port_obj)
 
-        ret_port_q = self._port_vnc_to_quantum(port_obj)
+        ret_port_q = self._port_vnc_to_neutron(port_obj)
         self._db_cache['q_ports'][port_id] = ret_port_q
 
         return ret_port_q
     #end port_update
 
     def port_delete(self, port_id):
-        port_obj = self._port_quantum_to_vnc({'id': port_id}, None, READ)
+        port_obj = self._port_neutron_to_vnc({'id': port_id}, None, READ)
         instance_id = port_obj.parent_uuid
 
         # release instance IP address
@@ -2182,7 +2185,7 @@ class DBInterface(object):
 
     # security group api handlers
     def security_group_create(self, sg_q):
-        sg_obj = self._security_group_quantum_to_vnc(sg_q, CREATE)
+        sg_obj = self._security_group_neutron_to_vnc(sg_q, CREATE)
         sg_uuid = self._security_group_create(sg_obj)
 
         #allow all egress traffic
@@ -2193,10 +2196,10 @@ class DBInterface(object):
         def_rule['remote_ip_prefix'] = '0.0.0.0/0'
         def_rule['remote_group_id'] = None
         def_rule['protocol'] = 'any'
-        rule = self._security_group_rule_quantum_to_vnc(def_rule, CREATE)
+        rule = self._security_group_rule_neutron_to_vnc(def_rule, CREATE)
         self._security_group_rule_create(sg_uuid, rule)
 
-        ret_sg_q = self._security_group_vnc_to_quantum(sg_obj)
+        ret_sg_q = self._security_group_vnc_to_neutron(sg_obj)
         return ret_sg_q
     #end security_group_create
 
@@ -2207,7 +2210,7 @@ class DBInterface(object):
             # TODO add security group specific exception
             raise exceptions.NetworkNotFound(net_id=sg_id)
 
-        return self._security_group_vnc_to_quantum(sg_obj)
+        return self._security_group_vnc_to_neutron(sg_obj)
     #end security_group_read
 
     def security_group_delete(self, sg_id):
@@ -2254,9 +2257,9 @@ class DBInterface(object):
 
     def security_group_rule_create(self, sgr_q):
         sg_id = sgr_q['security_group_id']
-        sg_rule = self._security_group_rule_quantum_to_vnc(sgr_q, CREATE)
+        sg_rule = self._security_group_rule_neutron_to_vnc(sgr_q, CREATE)
         self._security_group_rule_create(sg_id, sg_rule)
-        ret_sg_rule_q = self._security_group_rule_vnc_to_quantum(sg_id,
+        ret_sg_rule_q = self._security_group_rule_vnc_to_neutron(sg_id,
                                                                  sg_rule)
 
         return ret_sg_rule_q
@@ -2265,7 +2268,7 @@ class DBInterface(object):
     def security_group_rule_read(self, sgr_id):
         sg_obj, sg_rule = self._security_group_rule_find(sgr_id)
         if sg_obj and sg_rule:
-            return self._security_group_rule_vnc_to_quantum(sg_obj.uuid,
+            return self._security_group_rule_vnc_to_neutron(sg_obj.uuid,
                                                             sg_rule, sg_obj)
 
         return {}
@@ -2288,7 +2291,7 @@ class DBInterface(object):
                 return
 
             for sg_rule in sgr_entries.get_policy_rule():
-                sg_info = self._security_group_rule_vnc_to_quantum(sg_obj.uuid,
+                sg_info = self._security_group_rule_vnc_to_neutron(sg_obj.uuid,
                                                                    sg_rule,
                                                                    sg_obj)
                 sg_rules.append(sg_info)
@@ -2332,9 +2335,9 @@ class DBInterface(object):
 
     #route table api handlers
     def route_table_create(self, rt_q):
-        rt_obj = self._route_table_quantum_to_vnc(rt_q, CREATE)
+        rt_obj = self._route_table_neutron_to_vnc(rt_q, CREATE)
         rt_uuid = self._route_table_create(rt_obj)
-        ret_rt_q = self._route_table_vnc_to_quantum(rt_obj)
+        ret_rt_q = self._route_table_vnc_to_neutron(rt_obj)
         return ret_rt_q
     #end security_group_create
 
@@ -2345,14 +2348,14 @@ class DBInterface(object):
             # TODO add route table specific exception
             raise exceptions.NetworkNotFound(net_id=rt_id)
 
-        return self._route_table_vnc_to_quantum(rt_obj)
+        return self._route_table_vnc_to_neutron(rt_obj)
     #end route_table_read
 
     def route_table_update(self, rt_id, rt_q):
         rt_q['id'] = rt_id
-        rt_obj = self._route_table_quantum_to_vnc(rt_q, UPDATE)
+        rt_obj = self._route_table_neutron_to_vnc(rt_q, UPDATE)
         self._vnc_lib.route_table_update(rt_obj)
-        return self._route_table_vnc_to_quantum(rt_obj)
+        return self._route_table_vnc_to_neutron(rt_obj)
     #end policy_update
 
     def route_table_delete(self, rt_id):
@@ -2398,9 +2401,9 @@ class DBInterface(object):
 
     #service instance api handlers
     def svc_instance_create(self, si_q):
-        si_obj = self._svc_instance_quantum_to_vnc(si_q, CREATE)
+        si_obj = self._svc_instance_neutron_to_vnc(si_q, CREATE)
         si_uuid = self._svc_instance_create(si_obj)
-        ret_si_q = self._svc_instance_vnc_to_quantum(si_obj)
+        ret_si_q = self._svc_instance_vnc_to_neutron(si_obj)
         return ret_si_q
     #end svc_instance_create
 
@@ -2411,7 +2414,7 @@ class DBInterface(object):
             # TODO add svc instance specific exception
             raise exceptions.NetworkNotFound(net_id=si_id)
 
-        return self._svc_instance_vnc_to_quantum(si_obj)
+        return self._svc_instance_vnc_to_neutron(si_obj)
     #end svc_instance_read
 
     def svc_instance_delete(self, si_id):
