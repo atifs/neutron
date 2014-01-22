@@ -55,6 +55,7 @@ nec_plugin_config_path = 'etc/quantum/plugins/nec'
 hyperv_plugin_config_path = 'etc/quantum/plugins/hyperv'
 plumgrid_plugin_config_path = 'etc/quantum/plugins/plumgrid'
 midonet_plugin_config_path = 'etc/quantum/plugins/midonet'
+contrail_plugin_config_path = 'etc/quantum/plugins/contrail'
 
 if sys.platform == 'win32':
     # Windows doesn't have an "/etc" directory equivalent
@@ -115,6 +116,8 @@ else:
             ['etc/quantum/plugins/plumgrid/plumgrid.ini']),
         (midonet_plugin_config_path,
             ['etc/quantum/plugins/midonet/midonet.ini']),
+        (contrail_plugin_config_path,
+            ['etc/quantum/plugins/contrail/contrail_plugin.ini'])
     ]
 
     ConsoleScripts = [
@@ -173,7 +176,6 @@ setuptools.setup(
     install_requires=requires,
     dependency_links=depend_links,
     include_package_data=True,
-    setup_requires=['setuptools_git>=0.4'],
     packages=setuptools.find_packages('.'),
     cmdclass=setup.get_cmdclass(),
     data_files=DataFiles,

@@ -1,0 +1,16 @@
+use config_db_uuid;
+
+assume uuid_table keys as ascii;
+assume uuid_table comparator as ascii;
+assume uuid_table validator as ascii;
+list uuid_table;
+
+assume fq_name_table keys as ascii;
+assume fq_name_table comparator as ascii;
+assume fq_name_table validator as ascii;
+list fq_name_table;
+
+assume ifmap_id_table keys as ascii;
+assume ifmap_id_table comparator as ascii;
+assume ifmap_id_table validator as ascii;
+list ifmap_id_table;

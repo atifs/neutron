@@ -39,6 +39,10 @@ class Versions(object):
                 "id": "v2.0",
                 "status": "CURRENT",
             },
+            {
+                "id": "v2.0",
+                "status": "PROPOSED",
+            },
         ]
 
         if req.path != '/':

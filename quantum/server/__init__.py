@@ -27,9 +27,14 @@ from quantum.common import config
 from quantum import service
 
 
-def main():
+def main(args_str = None):
     # the configuration will be read into the cfg.CONF global data structure
-    config.parse(sys.argv[1:])
+    if not args_str:
+        args_list = sys.argv[1:]
+    else:
+        args_list = args_str.split()
+    config.parse(args_list)
+
     if not cfg.CONF.config_file:
         sys.exit(_("ERROR: Unable to find configuration file via the default"
                    " search paths (~/.quantum/, ~/, /etc/quantum/, /etc/) and"

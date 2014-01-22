@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -x
+
+# Create VNs
+curl -H "Content-Type: application/json" -d '{"network": {"name":"VN1"}}' http://0.0.0.0:9696/v2.0/networks
+curl -H "Content-Type: application/json" -d '{"network": {"name":"VN2"}}' http://0.0.0.0:9696/v2.0/networks
+curl -H "Content-Type: application/json" -d '{"network": {"name":"VN3"}}' http://0.0.0.0:9696/v2.0/networks
+
+# Create Security Groups
+curl -H "Content-Type: application/json" \
+     -d '{"security_group": {"name":"sg1", "description":"d1"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant1/networks/ct:net:tenant1:VN1/security_groups
+curl -H "Content-Type: application/json" \
+     -d '{"security_group": {"name":"sg2", "description":"d1"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant1/networks/ct:net:tenant1:VN1/security_groups
+
+# Create Policies
+curl -H "Content-Type: application/json" -d '{"policy": {"name":"pol1", "description":"d1", "position": 0}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant1/networks/ct:net:tenant1:VN1/security_groups/ct:sg:tenant1:sg1/policies
+
+# Create Policy Entry Lists
+curl -H "Content-Type: application/json" \
+     -d '{"policy_entry_list": 
+              [{"direction":"inbound", "other_vn":"vn2", "ip_proto":"tcp", "port":"1234", "action":"allow"}, 
+	       {"direction":"outbound", "other_vn":"vn3", "ip_proto":"udp", "port":"5678", "action":"deny"} ]}' \
+     http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant1/networks/ct:net:tenant1:VN1/security_groups/ct:sg:tenant1:sg1/policies/ct:pol:tenant1:pol1/policy_entries
+
+#curl -H "Content-Type: application/json" -d '{"security_group": {"name":"sg1", "description":"d1"}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups
+#curl -H "Content-Type: application/json" -d '{"policy": {"name":"pol1", "description":"d1", "position": 0}}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups/ct:sg:tenant:sg1/policies
+#curl -H "Content-Type: application/json" -d '{"policy_entry_list": [{"direction":"inbound", "other_vn":"vn2", "ip_proto":"tcp", "port":"1234", "action":"allow"}, {"direction":"outbound", "other_vn":"vn3", "ip_proto":"udp", "port":"5678", "action":"deny"} ]}' http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups/ct:sg:tenant:sg1/policies/ct:pol:tenant:pol1/policy_entries
+#curl -H "Content-Type: application/json" \
+#     -d '{"policy_entry_list": 
+#              [{"direction":"inbound", "other_vn":"vn2", "ip_proto":"tcp", "port":"1234", "action":"allow"}, 
+#	       {"direction":"outbound", "other_vn":"vn3", "ip_proto":"udp", "port":"5678", "action":"deny"} ]}' \
+#     http://0.0.0.0:9696/v2.0/extensions/ct/tenants/tenant/security_groups/ct:sg:tenant:sg1/policies/ct:pol:tenant:pol1/policy_entries
